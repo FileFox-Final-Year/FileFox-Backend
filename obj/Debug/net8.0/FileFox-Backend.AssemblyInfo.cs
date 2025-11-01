@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("FileFox-Backend")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1e249f59b102c63f156dd465c6bc52ca744ce8a9")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+8c704ebe1e178bd99a53c04737ef6ff4dd8cb6c5")]
 [assembly: System.Reflection.AssemblyProductAttribute("FileFox-Backend")]
 [assembly: System.Reflection.AssemblyTitleAttribute("FileFox-Backend")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
