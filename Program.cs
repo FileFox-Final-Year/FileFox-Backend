@@ -1,23 +1,74 @@
+using FileFox_Backend.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
+using System.Text;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-
+// Add controllers so we can have API endpoints
 builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+// Add Swagger for API documentation and testing
+builder.Services.AddSwaggerGen(o =>
+{
+    o.SwaggerDoc("v1", new OpenApiInfo { Title = "InMemoryFileApi", Version = "v1" });
+    o.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header. Example: Bearer {token}",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT"
+    });
+    o.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } },
+            new string[] {}
+        }
+    });
+});
+
+// In-memory file and user stores (data storage)
+builder.Services.AddSingleton<IFileStore, InMemoryFileStore>();
+builder.Services.AddSingleton<IUserStore, InMemoryUserStore>();
+// Token service for generating JWTs
+builder.Services.AddSingleton<ITokenService, JwtTokenService>();
+
+// Configure JWT authentication
+var key = builder.Configuration["Jwt:Key"] ?? "dev-secret-change-me-please-very-long-1234567890";
+var keyBytes = Encoding.UTF8.GetBytes(key);
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(o =>
+    {
+        o.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ClockSkew = TimeSpan.Zero
+        };
+    });
 
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+// Enable Swagger middleware for API documentation
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "InMemoryFileApi v1");
+});
+
 
 app.UseHttpsRedirection();
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();

@@ -1,29 +1,12 @@
-".vs/" 
-".vs/FileFox-Backend/*"
-".vs/*"
-/.vs/FileFox-Backend/FileContentIndex
-
-# Snyk Security Extension - AI Rules (auto-generated)
-.github\instructions\snyk_rules.instructions.md
-
-appsettings.Development.json
-appsettings.Staging.json
-appsettings.Production.json
-
-.github\instructions\snyk_rules.instructions.md
-
+### Visual Studio ###
+.vs/
+.vs/FileFox-Backend/*
+.vs/FileFox-Backend/FileContentIndex
+*.cache
 .futdcache.v2
 .dtbcache.v2
-DocumentLayout.backup.json
-DocumentLayout.json
-*.cache
 
-.nuget.
-project.assets.json
-project.nuget.cache
-
-packages/
-
+### Build artifacts ###
 [Dd]ebug/
 [Rr]elease/
 [Bb]in/
@@ -32,4 +15,21 @@ packages/
 *.obj
 *.exe
 *.dll
-*.obj
+
+### NuGet ###
+project.assets.json
+project.nuget.cache
+packages/
+.nuget/
+
+### App settings (environment-specific) ###
+appsettings.Development.json
+appsettings.Staging.json
+appsettings.Production.json
+
+### Document Layout ###
+DocumentLayout.backup.json
+DocumentLayout.json
+
+### GitHub files ###
+.github/instructions/snyk_rules.instructions.md
