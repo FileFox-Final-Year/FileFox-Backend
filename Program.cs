@@ -1,5 +1,7 @@
+using FileFox_Backend.Data;
 using FileFox_Backend.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
@@ -31,6 +33,10 @@ builder.Services.AddSwaggerGen(o =>
         }
     });
 });
+
+// Database configuration
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // In-memory file and user stores (data storage)
 builder.Services.AddSingleton<IFileStore, InMemoryFileStore>();
