@@ -38,9 +38,10 @@ builder.Services.AddSwaggerGen(o =>
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// In-memory file and user stores (data storage)
-builder.Services.AddSingleton<IFileStore, InMemoryFileStore>();
-builder.Services.AddSingleton<IUserStore, InMemoryUserStore>();
+// EF core user store (database-backed user storage)
+builder.Services.AddScoped<IUserStore, EFCoreUserStore>();
+// EF core file store (database-backed file storage)
+builder.Services.AddScoped<IFileStore, EFCoreFileStore>();
 // Token service for generating JWTs
 builder.Services.AddSingleton<ITokenService, JwtTokenService>();
 

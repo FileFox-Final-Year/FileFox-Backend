@@ -1,8 +1,5 @@
 using System;
-using System.Runtime.CompilerServices;
 
-// This is what we keep for each file in memory.
-// It includes the bytes (the actual file) and some notes about it.
 namespace FileFox_Backend.Models;
 
 public class FileRecord

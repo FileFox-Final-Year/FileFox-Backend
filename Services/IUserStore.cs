@@ -1,7 +1,4 @@
 using FileFox_Backend.Models;
-
-namespace FileFox_Backend.Services;
-
 public interface IUserStore
 {
     Task<(bool Created, User? User, string? Error)> RegisterAsync(string userName, string password, CancellationToken ct = default);

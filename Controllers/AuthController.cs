@@ -8,13 +8,19 @@ namespace FileFox_Backend.Controllers;
 
 [ApiController]
 [Route("auth")]
-public class AuthController(IUserStore users, ITokenService tokens, ILogger<AuthController> logger) : ControllerBase
+public class AuthController : ControllerBase
 {
-    private readonly IUserStore _users = users;
-    private readonly ITokenService _tokens = tokens;
-    private readonly ILogger<AuthController> _logger = logger;
+    private readonly IUserStore _users;
+    private readonly ITokenService _tokens;
+    private readonly ILogger<AuthController> _logger;
 
-    // Anyone can call this to make a new account
+    public AuthController(IUserStore users, ITokenService tokens, ILogger<AuthController> logger)
+    {
+        _users = users;
+        _tokens = tokens;
+        _logger = logger;
+    }
+
     [AllowAnonymous]
     [HttpPost("register")]
     [ProducesResponseType(StatusCodes.Status201Created)]
@@ -25,7 +31,7 @@ public class AuthController(IUserStore users, ITokenService tokens, ILogger<Auth
         var (created, user, error) = await _users.RegisterAsync(request.UserName, request.Password, ct);
         if (!created)
         {
-            if (string.Equals(error, "Username already exists", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(error, "User already exists", StringComparison.OrdinalIgnoreCase))
                 return Conflict(new { error });
             return BadRequest(new { error });
         }
@@ -39,7 +45,6 @@ public class AuthController(IUserStore users, ITokenService tokens, ILogger<Auth
         });
     }
 
-    // Anyone can call this to log in and get a token
     [AllowAnonymous]
     [HttpPost("login")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -48,7 +53,10 @@ public class AuthController(IUserStore users, ITokenService tokens, ILogger<Auth
     {
         var user = await _users.ValidateCredentialsAsync(request.UserName, request.Password, ct);
         if (user is null)
+        {
+            _logger.LogWarning("Failed login attempt for username {UserName}", request.UserName);
             return Unauthorized(new { error = "Invalid credentials" });
+        }
 
         var token = _tokens.CreateToken(user);
         return Ok(new AuthResponse

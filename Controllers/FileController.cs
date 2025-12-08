@@ -7,11 +7,17 @@ namespace FileFox_Backend.Controllers;
 
 [ApiController]
 [Route("files")]
-[Microsoft.AspNetCore.Authorization.Authorize] // Only logged-in users can use these file roads
-public class FilesController(IFileStore store, ILogger<FilesController> logger) : ControllerBase
+[Microsoft.AspNetCore.Authorization.Authorize] // Only logged-in users can access
+public class FilesController : ControllerBase
 {
-    private readonly IFileStore _store = store;
-    private readonly ILogger<FilesController> _logger = logger;
+    private readonly IFileStore _store;
+    private readonly ILogger<FilesController> _logger;
+
+    public FilesController(IFileStore store, ILogger<FilesController> logger)
+    {
+        _store = store;
+        _logger = logger;
+    }
 
     // Upload a file and save it
     [HttpPost]
@@ -42,59 +48,62 @@ public class FilesController(IFileStore store, ILogger<FilesController> logger) 
         }
     }
 
-    // List all the files that belong to you
+    // List all files that belong to the current user
     [HttpGet]
     [ProducesResponseType(typeof(IEnumerable<FileMetadataDto>), StatusCodes.Status200OK)]
-    public IActionResult List()
+    public async Task<IActionResult> List(CancellationToken ct)
     {
         var userId = GetUserId();
-        var items = _store.List(userId)
-            .Select(f => new FileMetadataDto
-            {
-                Id = f.Id,
-                FileName = f.FileName,
-                ContentType = f.ContentType,
-                Length = f.Length,
-                UploadedAt = f.UploadedAt
-            });
-        return Ok(items);
+        var items = await _store.ListAsync(userId, ct);
+
+        var dto = items.Select(f => new FileMetadataDto
+        {
+            Id = f.Id,
+            FileName = f.FileName,
+            ContentType = f.ContentType,
+            Length = f.Length,
+            UploadedAt = f.UploadedAt
+        });
+
+        return Ok(dto);
     }
 
-    // Download one of your files by its id
+    // Download a single file by ID
     [HttpGet("{id:guid}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public IActionResult Download([FromRoute] Guid id, [FromQuery] bool attachment = true)
+    public async Task<IActionResult> Download([FromRoute] Guid id, [FromQuery] bool attachment = true)
     {
         var userId = GetUserId();
-        if (!_store.TryGet(userId, id, out var record))
+        var record = await _store.GetAsync(userId, id);
+        if (record is null)
             return NotFound();
 
-        var fileResult = File(record.Bytes, record.ContentType, attachment ? record.FileName : null);
-        return fileResult;
+        return File(record.Bytes, record.ContentType, attachment ? record.FileName : null);
     }
 
-    // Delete one of your files by its id
+    // Delete a file by ID
     [HttpDelete("{id:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public IActionResult Delete([FromRoute] Guid id)
+    public async Task<IActionResult> Delete([FromRoute] Guid id)
     {
         var userId = GetUserId();
-        return _store.Delete(userId, id) ? NoContent() : NotFound();
+        var success = await _store.DeleteAsync(userId, id);
+        return success ? NoContent() : NotFound();
     }
 
-    // Delete ALL of your files
+    // Delete all files for the current user
     [HttpDelete]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public IActionResult Clear()
+    public async Task<IActionResult> Clear()
     {
         var userId = GetUserId();
-        _store.Clear(userId);
+        await _store.ClearAsync(userId);
         return NoContent();
     }
 
-    // Find out who you are from the token (your name tag)
+    // Helper: get the current user ID from JWT
     private Guid GetUserId()
     {
         var sub = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
