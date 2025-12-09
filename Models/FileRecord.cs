@@ -10,5 +10,7 @@ public class FileRecord
     public required string ContentType { get; init; } = string.Empty;
     public long Length { get; init; }
     public DateTimeOffset UploadedAt { get; init; } = DateTimeOffset.UtcNow;
-    public required byte[] Bytes { get; init; } = Array.Empty<byte>();
+    public byte[]? Bytes { get; set; }
+    public string? FilePath { get; set; }
 }
+

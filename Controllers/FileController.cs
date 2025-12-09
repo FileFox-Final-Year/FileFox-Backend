@@ -7,19 +7,18 @@ namespace FileFox_Backend.Controllers;
 
 [ApiController]
 [Route("files")]
-[Microsoft.AspNetCore.Authorization.Authorize] // Only logged-in users can access
+[Microsoft.AspNetCore.Authorization.Authorize]
 public class FilesController : ControllerBase
 {
-    private readonly IFileStore _store;
+    private readonly FileService _fileService;
     private readonly ILogger<FilesController> _logger;
 
-    public FilesController(IFileStore store, ILogger<FilesController> logger)
+    public FilesController(FileService fileService, ILogger<FilesController> logger)
     {
-        _store = store;
+        _fileService = fileService;
         _logger = logger;
     }
 
-    // Upload a file and save it
     [HttpPost]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(long.MaxValue)]
@@ -28,18 +27,15 @@ public class FilesController : ControllerBase
     public async Task<IActionResult> Upload([FromForm] UploadFileRequest form, CancellationToken ct)
     {
         var file = form.File;
-        if (file is null)
-            return BadRequest(new { error = "Missing form file field 'file'" });
-
-        if (file.Length == 0)
-            return BadRequest(new { error = "File is empty" });
+        if (file is null) return BadRequest(new { error = "Missing file" });
+        if (file.Length == 0) return BadRequest(new { error = "File is empty" });
 
         try
         {
             var userId = GetUserId();
-            var id = await _store.SaveAsync(userId, file, ct);
-            var location = Url.Action(nameof(Download), new { id }) ?? $"/files/{id}";
-            return Created(location, new { id });
+            var record = await _fileService.UploadAsync(userId, file);
+            var location = Url.Action(nameof(Download), new { id = record.Id }) ?? $"/files/{record.Id}";
+            return Created(location, new { id = record.Id });
         }
         catch (Exception ex)
         {
@@ -48,13 +44,12 @@ public class FilesController : ControllerBase
         }
     }
 
-    // List all files that belong to the current user
     [HttpGet]
     [ProducesResponseType(typeof(IEnumerable<FileMetadataDto>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> List(CancellationToken ct)
+    public async Task<IActionResult> List()
     {
         var userId = GetUserId();
-        var items = await _store.ListAsync(userId, ct);
+        var items = await _fileService.ListAsync(userId);
 
         var dto = items.Select(f => new FileMetadataDto
         {
@@ -68,42 +63,37 @@ public class FilesController : ControllerBase
         return Ok(dto);
     }
 
-    // Download a single file by ID
     [HttpGet("{id:guid}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Download([FromRoute] Guid id, [FromQuery] bool attachment = true)
     {
         var userId = GetUserId();
-        var record = await _store.GetAsync(userId, id);
-        if (record is null)
-            return NotFound();
+        var result = await _fileService.DownloadAsync(id, userId);
+        if (result == null) return NotFound();
 
-        return File(record.Bytes, record.ContentType, attachment ? record.FileName : null);
+        return File(result.Value.Stream, result.Value.ContentType, attachment ? result.Value.FileName : null);
     }
 
-    // Delete a file by ID
     [HttpDelete("{id:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete([FromRoute] Guid id)
     {
         var userId = GetUserId();
-        var success = await _store.DeleteAsync(userId, id);
+        var success = await _fileService.DeleteAsync(id, userId);
         return success ? NoContent() : NotFound();
     }
 
-    // Delete all files for the current user
     [HttpDelete]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Clear()
     {
         var userId = GetUserId();
-        await _store.ClearAsync(userId);
+        await _fileService.ClearAsync(userId);
         return NoContent();
     }
 
-    // Helper: get the current user ID from JWT
     private Guid GetUserId()
     {
         var sub = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");

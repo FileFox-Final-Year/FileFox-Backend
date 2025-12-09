@@ -29,7 +29,8 @@ public class EFCoreFileStore : IFileStore
             ContentType = file.ContentType,
             Length = file.Length,
             UploadedAt = DateTimeOffset.UtcNow,
-            Bytes = ms.ToArray()
+            Bytes = ms.ToArray(),
+            FilePath = null
         };
 
         _db.Files.Add(record);

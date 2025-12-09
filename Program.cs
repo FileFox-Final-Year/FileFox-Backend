@@ -8,87 +8,94 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Add controllers so we can have API endpoints
-builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-// Add Swagger for API documentation and testing
-builder.Services.AddSwaggerGen(o =>
-{
-    o.SwaggerDoc("v1", new OpenApiInfo { Title = "FileFox API", Version = "v1" });
+// -------------------- SECRETS PROVIDER --------------------
+builder.Services.AddSingleton<ISecretProvider, LocalSecretProvider>();
 
-    o.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+// Build temp provider so we can read secrets during DI setup
+var tempProvider = builder.Services.BuildServiceProvider();
+var secrets = tempProvider.GetRequiredService<ISecretProvider>();
+
+string jwtKey = secrets.GetSecret("Jwt:Key");
+string jwtIssuer = secrets.GetSecret("Jwt:Issuer");
+string jwtAudience = secrets.GetSecret("Jwt:Audience");
+string connectionString = secrets.GetSecret("ConnectionStrings:DefaultConnection");
+
+// -------------------- CONFIGURATION --------------------
+
+// EF Core + SQL Server using secret provider
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlServer(connectionString));
+
+// Register services
+builder.Services.AddScoped<IUserStore, EFCoreUserStore>();
+builder.Services.AddScoped<ITokenService, JwtTokenService>();
+builder.Services.AddScoped<RefreshTokenService>();
+builder.Services.AddScoped<IBlobStorageService, LocalBlobStorage>();
+builder.Services.AddScoped<FileService>();
+builder.Services.AddScoped<IFileStore, EFCoreFileStore>();
+
+builder.Services.AddControllers();
+
+// -------------------- AUTHENTICATION --------------------
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
     {
-        Description = "JWT Authorization header. Example: Bearer {token}",
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = jwtIssuer,
+        ValidAudience = jwtAudience,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+        ClockSkew = TimeSpan.Zero
+    };
+});
+
+// -------------------- SWAGGER --------------------
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header eg'Bearer {token}'",
         Name = "Authorization",
         In = ParameterLocation.Header,
-        Type = SecuritySchemeType.Http,
+        Type = SecuritySchemeType.ApiKey
         Scheme = "bearer",
         BearerFormat = "JWT"
     });
 
-    o.AddSecurityRequirement(new OpenApiSecurityRequirement
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
-            new OpenApiSecurityScheme 
-            { 
-                Reference = new OpenApiReference 
-                { 
-                    Type = ReferenceType.SecurityScheme, 
-                    Id = "Bearer" 
-                } 
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
             },
-            new string[] {}
+            Array.Empty<string>()
         }
     });
 });
 
-// Database configuration
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
-
-// EF core user store (database-backed user storage)
-builder.Services.AddScoped<IUserStore, EFCoreUserStore>();
-// EF core file store (database-backed file storage)
-builder.Services.AddScoped<IFileStore, EFCoreFileStore>();
-// Token service for generating JWTs
-builder.Services.AddScoped<ITokenService, JwtTokenService>();
-builder.Services.AddScoped<RefreshTokenService>();
-
-// Configure JWT authentication
-var key = Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? "JWTSecretKey1234567890");
-builder.Services
-    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(o =>
-    {
-        o.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(key),
-
-            ValidateIssuer = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"],
-
-            ValidateAudience = true,
-            ValidAudience = builder.Configuration["Jwt:Audience"],
-
-            RequireExpirationTime = true,
-            ValidateLifetime = true,
-
-            ClockSkew = TimeSpan.FromMinutes(1)
-        };
-    });
-
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-// Enable Swagger middleware for API documentation
-app.UseSwagger();
-app.UseSwaggerUI(c =>
+// -------------------- MIDDLEWARE --------------------
+if (app.Environment.IsDevelopment())
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "FileFox API v1");
-});
-
+    app.UseDeveloperExceptionPage();
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 
 app.UseHttpsRedirection();
 
