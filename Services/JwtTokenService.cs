@@ -1,5 +1,3 @@
-// This makes JWT tokens. A token is like a signed name tag
-// that says who you are so the server can trust you.
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -14,29 +12,27 @@ public class JwtTokenService : ITokenService
     private readonly string _issuer;
     private readonly string _audience;
 
-    public JwtTokenService(IConfiguration config)
+    public JwtTokenService(ISecretProvider secretProvider)
     {
-        // Defaults for demo; can be changed via configuration
-        var key = config["Jwt:Key"] ?? "dev-secret-change-me-please-very-long-1234567890";
+        var key = secretProvider.GetSecret("Jwt:Key");
         _key = Encoding.UTF8.GetBytes(key);
-        _issuer = config["Jwt:Issuer"] ?? "InMemoryFileApi";
-        _audience = config["Jwt:Audience"] ?? "InMemoryFileApiAudience";
+
+        _issuer = secretProvider.GetSecret("Jwt:Issuer");
+        _audience = secretProvider.GetSecret("Jwt:Audience");
     }
 
     public string CreateToken(User user)
     {
         var creds = new SigningCredentials(new SymmetricSecurityKey(_key), SecurityAlgorithms.HmacSha256);
 
-        // Claims are pieces of information about the user we put inside the token
         var claims = new List<Claim>
         {
-            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new(JwtRegisteredClaimNames.UniqueName, user.UserName),
-            new(ClaimTypes.Name, user.UserName)
+            new (JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new (ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new (JwtRegisteredClaimNames.UniqueName, user.UserName),
+            new (ClaimTypes.Name, user.UserName)
         };
 
-        // Make a token that expires in a few hours
         var token = new JwtSecurityToken(
             issuer: _issuer,
             audience: _audience,

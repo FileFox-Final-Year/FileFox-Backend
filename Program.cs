@@ -1,5 +1,6 @@
 using FileFox_Backend.Data;
 using FileFox_Backend.Services;
+using FileFox_Backend.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -8,23 +9,14 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// -------------------- SECRETS PROVIDER --------------------
+// -------------------- SECRET PROVIDER --------------------
 builder.Services.AddSingleton<ISecretProvider, LocalSecretProvider>();
-
-// Build temp provider so we can read secrets during DI setup
-var tempProvider = builder.Services.BuildServiceProvider();
-var secrets = tempProvider.GetRequiredService<ISecretProvider>();
-
-string jwtKey = secrets.GetSecret("Jwt:Key");
-string jwtIssuer = secrets.GetSecret("Jwt:Issuer");
-string jwtAudience = secrets.GetSecret("Jwt:Audience");
-string connectionString = secrets.GetSecret("ConnectionStrings:DefaultConnection");
 
 // -------------------- CONFIGURATION --------------------
 
-// EF Core + SQL Server using secret provider
+// Database context
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(connectionString));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Register services
 builder.Services.AddScoped<IUserStore, EFCoreUserStore>();
@@ -44,15 +36,21 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
+    var provider = builder.Services.BuildServiceProvider().GetRequiredService<ISecretProvider>();
+
+    var key = Encoding.UTF8.GetBytes(provider.GetSecret("Jwt:Key"));
+    var issuer = provider.GetSecret("Jwt:Issuer");
+    var audience = provider.GetSecret("Jwt:Audience");
+
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true,
         ValidateAudience = true,
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
-        ValidIssuer = jwtIssuer,
-        ValidAudience = jwtAudience,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+        ValidIssuer = issuer,
+        ValidAudience = audience,
+        IssuerSigningKey = new SymmetricSecurityKey(key),
         ClockSkew = TimeSpan.Zero
     };
 });
@@ -63,10 +61,10 @@ builder.Services.AddSwaggerGen(c =>
 {
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT Authorization header eg'Bearer {token}'",
+        Description = "JWT Authorization header. Example: 'Bearer {token}'",
         Name = "Authorization",
         In = ParameterLocation.Header,
-        Type = SecuritySchemeType.ApiKey
+        Type = SecuritySchemeType.ApiKey,
         Scheme = "bearer",
         BearerFormat = "JWT"
     });
@@ -82,7 +80,7 @@ builder.Services.AddSwaggerGen(c =>
                     Id = "Bearer"
                 }
             },
-            Array.Empty<string>()
+            new string[] {}
         }
     });
 });
@@ -96,6 +94,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.UseMiddleware<GlobalExceptionMiddleware>();
 
 app.UseHttpsRedirection();
 
