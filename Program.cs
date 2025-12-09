@@ -15,7 +15,8 @@ builder.Services.AddEndpointsApiExplorer();
 // Add Swagger for API documentation and testing
 builder.Services.AddSwaggerGen(o =>
 {
-    o.SwaggerDoc("v1", new OpenApiInfo { Title = "InMemoryFileApi", Version = "v1" });
+    o.SwaggerDoc("v1", new OpenApiInfo { Title = "FileFox API", Version = "v1" });
+
     o.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Description = "JWT Authorization header. Example: Bearer {token}",
@@ -25,10 +26,18 @@ builder.Services.AddSwaggerGen(o =>
         Scheme = "bearer",
         BearerFormat = "JWT"
     });
+
     o.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
-            new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } },
+            new OpenApiSecurityScheme 
+            { 
+                Reference = new OpenApiReference 
+                { 
+                    Type = ReferenceType.SecurityScheme, 
+                    Id = "Bearer" 
+                } 
+            },
             new string[] {}
         }
     });
@@ -43,11 +52,11 @@ builder.Services.AddScoped<IUserStore, EFCoreUserStore>();
 // EF core file store (database-backed file storage)
 builder.Services.AddScoped<IFileStore, EFCoreFileStore>();
 // Token service for generating JWTs
-builder.Services.AddSingleton<ITokenService, JwtTokenService>();
+builder.Services.AddScoped<ITokenService, JwtTokenService>();
+builder.Services.AddScoped<RefreshTokenService>();
 
 // Configure JWT authentication
-var key = builder.Configuration["Jwt:Key"] ?? "dev-secret-change-me-please-very-long-1234567890";
-var keyBytes = Encoding.UTF8.GetBytes(key);
+var key = Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? "JWTSecretKey1234567890");
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(o =>
@@ -55,10 +64,18 @@ builder.Services
         o.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
-            ValidateIssuer = false,
-            ValidateAudience = false,
-            ClockSkew = TimeSpan.Zero
+            IssuerSigningKey = new SymmetricSecurityKey(key),
+
+            ValidateIssuer = true,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+
+            ValidateAudience = true,
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+
+            RequireExpirationTime = true,
+            ValidateLifetime = true,
+
+            ClockSkew = TimeSpan.FromMinutes(1)
         };
     });
 
@@ -69,7 +86,7 @@ var app = builder.Build();
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "InMemoryFileApi v1");
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "FileFox API v1");
 });
 
 

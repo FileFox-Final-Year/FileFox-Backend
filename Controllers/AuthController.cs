@@ -12,12 +12,18 @@ public class AuthController : ControllerBase
 {
     private readonly IUserStore _users;
     private readonly ITokenService _tokens;
+    private readonly RefreshTokenService _refreshTokens;
     private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IUserStore users, ITokenService tokens, ILogger<AuthController> logger)
+    public AuthController(
+        IUserStore users,
+        ITokenService tokens,
+        RefreshTokenService refreshTokens,
+        ILogger<AuthController> logger)
     {
         _users = users;
         _tokens = tokens;
+        _refreshTokens = refreshTokens;
         _logger = logger;
     }
 
@@ -28,42 +34,79 @@ public class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request, CancellationToken ct)
     {
-        var (created, user, error) = await _users.RegisterAsync(request.UserName, request.Password, ct);
+        if (!ModelState.IsValid)
+        return BadRequest(ModelState);
+
+        var (created, user, error) = await _users.RegisterAsync(request.UserName, request.Email, request.Password, ct);
+
         if (!created)
         {
-            if (string.Equals(error, "User already exists", StringComparison.OrdinalIgnoreCase))
-                return Conflict(new { error });
-            return BadRequest(new { error });
+            return error?.Contains("exists") ?? false
+                ? Conflict(new { error })
+                : BadRequest(new { error });
         }
 
         var token = _tokens.CreateToken(user!);
+
         return Created("/auth/register", new AuthResponse
         {
             Token = token,
             UserName = user!.UserName,
+            Email = user!.Email,
             UserId = user!.Id.ToString()
         });
-    }
+}
 
     [AllowAnonymous]
     [HttpPost("login")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken ct)
+    public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
-        var user = await _users.ValidateCredentialsAsync(request.UserName, request.Password, ct);
-        if (user is null)
-        {
-            _logger.LogWarning("Failed login attempt for username {UserName}", request.UserName);
+        var user = await _users.ValidateCredentialsAsync(request.Email, request.Password);
+        if (user == null)
             return Unauthorized(new { error = "Invalid credentials" });
-        }
 
-        var token = _tokens.CreateToken(user);
-        return Ok(new AuthResponse
+        // Generate access token
+        var accessToken = _tokens.CreateToken(user);
+
+        // Generate refresh token
+        var refreshToken = await _refreshTokens.GenerateTokenAsync(user.Id);
+
+        return Ok(new
         {
-            Token = token,
-            UserName = user.UserName,
-            UserId = user.Id.ToString()
+            AccessToken = accessToken,
+            RefreshToken = refreshToken.Token
         });
+    }
+
+    [AllowAnonymous]
+    [HttpPost("refresh")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Refresh([FromBody] RefreshRequest request)
+    {
+        // Validate the incoming refresh token
+        var refreshToken = await _refreshTokens.ValidateTokenAsync(request.RefreshToken);
+        if (refreshToken == null)
+            return Unauthorized(new { error = "Invalid or expired refresh token" });
+
+        // Issue a new access token
+        var accessToken = _tokens.CreateToken(refreshToken.User!);
+
+        // Revoke the old refresh token
+        await _refreshTokens.RevokeTokenAsync(request.RefreshToken);
+
+        // Generate a new refresh token (rotation)
+        var newRefreshToken = await _refreshTokens.GenerateTokenAsync(refreshToken.User!.Id);
+
+        // Return new tokens using the DTO
+        var response = new RefreshResponse
+        {
+            AccessToken = accessToken,
+            RefreshToken = newRefreshToken.Token
+        };
+
+        return Ok(response);
     }
 }

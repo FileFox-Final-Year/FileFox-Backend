@@ -12,5 +12,6 @@ namespace FileFox_Backend.Data
 
         public DbSet<User> Users { get; set; }
         public DbSet<FileRecord> Files { get; set; }
+        public DbSet<RefreshToken> RefreshTokens { get; set; }
     }
 }
