@@ -10,10 +10,11 @@ public class FileService
     private readonly IBlobStorageService _blob;
     private readonly ILogger<FileService> _logger;
 
-    public FileService(ApplicationDbContext db, IBlobStorageService blob)
+    public FileService(ApplicationDbContext db, IBlobStorageService blob, ILogger<FileService> logger)
     {
         _db = db;
         _blob = blob;
+        _logger = logger;
     }
 
     public async Task<FileRecord> UploadAsync(Guid userId, IFormFile file)
@@ -89,6 +90,12 @@ public class FileService
         }
 
         _logger.LogInformation("User {UserId} downloading file {FileName}", userId, record.FileName);
+
+        if (string.IsNullOrWhiteSpace(record.FilePath))
+        {
+            _logger.LogError("FilePath is NULL for FileId {FileId}", fileId);
+            return null;
+        }
 
         // Add AuditLog for download
         var log = new AuditLog

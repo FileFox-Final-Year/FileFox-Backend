@@ -44,11 +44,11 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
-    var provider = builder.Services.BuildServiceProvider().GetRequiredService<ISecretProvider>();
+    var secrets = builder.Configuration;
 
-    var key = Encoding.UTF8.GetBytes(provider.GetSecret("Jwt:Key"));
-    var issuer = provider.GetSecret("Jwt:Issuer");
-    var audience = provider.GetSecret("Jwt:Audience");
+    var key = Encoding.UTF8.GetBytes(secrets["Jwt:Key"]!);
+    var issuer = secrets["Jwt:Issuer"];
+    var audience = secrets["Jwt:Audience"];
 
     options.TokenValidationParameters = new TokenValidationParameters
     {
