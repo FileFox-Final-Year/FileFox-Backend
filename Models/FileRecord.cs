@@ -12,5 +12,7 @@ public class FileRecord
     public DateTimeOffset UploadedAt { get; init; } = DateTimeOffset.UtcNow;
     public byte[]? Bytes { get; set; }
     public string? FilePath { get; set; }
+    public List<FileKey> Keys { get; set; } = new();
+    public List<AuditLog> AuditLogs { get; set; } = new();
 }
 

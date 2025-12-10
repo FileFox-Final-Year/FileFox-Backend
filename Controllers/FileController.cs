@@ -1,24 +1,31 @@
 using System.Security.Claims;
 using FileFox_Backend.Models;
 using FileFox_Backend.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FileFox_Backend.Controllers;
 
 [ApiController]
 [Route("files")]
-[Microsoft.AspNetCore.Authorization.Authorize]
+[Authorize]
 public class FilesController : ControllerBase
 {
     private readonly FileService _fileService;
     private readonly ILogger<FilesController> _logger;
+    private readonly IAuthorizationService _authorizationService;
 
-    public FilesController(FileService fileService, ILogger<FilesController> logger)
+    public FilesController(
+        FileService fileService, 
+        ILogger<FilesController> logger,
+        IAuthorizationService authorizationService)
     {
         _fileService = fileService;
         _logger = logger;
+        _authorizationService = authorizationService;
     }
 
+    // -------------------- UPLOAD --------------------
     [HttpPost]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(long.MaxValue)]
@@ -44,6 +51,7 @@ public class FilesController : ControllerBase
         }
     }
 
+    // -------------------- LIST FILES --------------------
     [HttpGet]
     [ProducesResponseType(typeof(IEnumerable<FileMetadataDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> List()
@@ -63,28 +71,44 @@ public class FilesController : ControllerBase
         return Ok(dto);
     }
 
+    // -------------------- DOWNLOAD --------------------
     [HttpGet("{id:guid}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Download([FromRoute] Guid id, [FromQuery] bool attachment = true)
     {
-        var userId = GetUserId();
-        var result = await _fileService.DownloadAsync(id, userId);
+        var fileRecord = await _fileService.GetFileRecordAsync(id);
+        if (fileRecord == null) return NotFound();
+
+        // Enforce policy: FileOwner or Admin
+        var authResult = await _authorizationService.AuthorizeAsync(User, fileRecord, "FileOwnerPolicy");
+        if (!authResult.Succeeded) return Forbid();
+
+        var result = await _fileService.DownloadAsync(fileRecord.Id, fileRecord.UserId);
         if (result == null) return NotFound();
 
         return File(result.Value.Stream, result.Value.ContentType, attachment ? result.Value.FileName : null);
     }
 
+    // -------------------- DELETE --------------------
     [HttpDelete("{id:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Delete([FromRoute] Guid id)
     {
-        var userId = GetUserId();
-        var success = await _fileService.DeleteAsync(id, userId);
-        return success ? NoContent() : NotFound();
+        var fileRecord = await _fileService.GetFileRecordAsync(id);
+        if (fileRecord == null) return NotFound();
+
+        var authResult = await _authorizationService.AuthorizeAsync(User, fileRecord, "FileOwnerPolicy");
+        if (!authResult.Succeeded) return Forbid();
+
+        await _fileService.DeleteAsync(fileRecord.Id, fileRecord.UserId);
+        return NoContent();
     }
 
+    // -------------------- CLEAR USER FILES --------------------
     [HttpDelete]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Clear()
@@ -94,6 +118,7 @@ public class FilesController : ControllerBase
         return NoContent();
     }
 
+    // -------------------- HELPER --------------------
     private Guid GetUserId()
     {
         var sub = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");

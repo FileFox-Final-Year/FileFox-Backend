@@ -34,18 +34,33 @@ public class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request, CancellationToken ct)
     {
+        _logger.LogInformation("Registration attempt for email {Email}", request.Email);
+
         if (!ModelState.IsValid)
-        return BadRequest(ModelState);
+        {
+            _logger.LogWarning("Registration failed for email {Email} due to invalid model state", request.Email);
+            return BadRequest(ModelState);
+        }
 
         var (created, user, error) = await _users.RegisterAsync(request.UserName, request.Email, request.Password, ct);
 
         if (!created)
         {
-            return error?.Contains("exists") ?? false
-                ? Conflict(new { error })
-                : BadRequest(new { error });
+            if (error?.Contains("exists") ?? false)
+            {
+                _logger.LogWarning("Registration failed: user already exists for email {Email}", request.Email);
+                return Conflict(new { error });
+            }
+            else
+            {
+                _logger.LogWarning("Registration failed for email {Email}: {Error}", request.Email, error);
+                return BadRequest(new { error });
+            }
         }
 
+        _logger.LogInformation("User registered successfully with email {Email} and ID {UserId}", user!.Email, user!.Id);
+
+        user!.Role = "User";
         var token = _tokens.CreateToken(user!);
 
         return Created("/auth/register", new AuthResponse
@@ -55,7 +70,7 @@ public class AuthController : ControllerBase
             Email = user!.Email,
             UserId = user!.Id.ToString()
         });
-}
+    }
 
     [AllowAnonymous]
     [HttpPost("login")]
@@ -63,14 +78,19 @@ public class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
+        _logger.LogInformation("Login attempt for {Email}", request.Email);
+
         var user = await _users.ValidateCredentialsAsync(request.Email, request.Password);
+
         if (user == null)
+        {
+            _logger.LogWarning("Failed login attempt for {Email}", request.Email);
             return Unauthorized(new { error = "Invalid credentials" });
+        }
 
-        // Generate access token
+        _logger.LogInformation("User {Email} logged in successfully", request.Email);
+
         var accessToken = _tokens.CreateToken(user);
-
-        // Generate refresh token
         var refreshToken = await _refreshTokens.GenerateTokenAsync(user.Id);
 
         return Ok(new

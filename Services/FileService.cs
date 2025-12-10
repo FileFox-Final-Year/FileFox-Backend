@@ -8,6 +8,7 @@ public class FileService
 {
     private readonly ApplicationDbContext _db;
     private readonly IBlobStorageService _blob;
+    private readonly ILogger<FileService> _logger;
 
     public FileService(ApplicationDbContext db, IBlobStorageService blob)
     {
@@ -17,14 +18,18 @@ public class FileService
 
     public async Task<FileRecord> UploadAsync(Guid userId, IFormFile file)
     {
+        _logger.LogInformation("User {UserId} is uploading file {FileName}", userId, file.FileName);
+
         if (file.Length == 0)
+        {
+            _logger.LogWarning("User {UserId} tried to upload an empty file {FileName}", userId, file.FileName);
             throw new ArgumentException("File is empty", nameof(file));
+        }
 
         await using var ms = new MemoryStream();
         await file.CopyToAsync(ms);
         ms.Position = 0;
 
-        // Save to local storage
         var path = await _blob.UploadFileAsync(ms, file.FileName, file.ContentType);
 
         var record = new FileRecord
@@ -34,13 +39,32 @@ public class FileService
             ContentType = file.ContentType,
             Length = file.Length,
             UploadedAt = DateTimeOffset.UtcNow,
-            Bytes = null,
             FilePath = path
         };
 
+        // Add a placeholder FileKey
+        var key = new FileKey
+        {
+            FileRecord = record,
+            KeyName = "PLACEHOLDER",
+            KeyValue = "PLACEHOLDER"
+        };
+        record.Keys.Add(key);
+
         _db.Files.Add(record);
+
+        // Add AuditLog
+        var log = new AuditLog
+        {
+            FileRecord = record,
+            UserId = userId,
+            Action = "Upload"
+        };
+        _db.AuditLogs.Add(log);
+
         await _db.SaveChangesAsync();
 
+        _logger.LogInformation("File {FileName} uploaded successfully for user {UserId}", file.FileName, userId);
         return record;
     }
 
@@ -55,11 +79,26 @@ public class FileService
 
     public async Task<(Stream Stream, string FileName, string ContentType)?> DownloadAsync(Guid fileId, Guid userId)
     {
-        var record = await _db.Files
-            .AsNoTracking()
+        var record = await _db.Files.AsNoTracking()
             .FirstOrDefaultAsync(f => f.Id == fileId && f.UserId == userId);
 
-        if (record == null) return null;
+        if (record == null)
+        {
+            _logger.LogWarning("File {FileId} not found for user {UserId}", fileId, userId);
+            return null;
+        }
+
+        _logger.LogInformation("User {UserId} downloading file {FileName}", userId, record.FileName);
+
+        // Add AuditLog for download
+        var log = new AuditLog
+        {
+            FileRecordId = record.Id,
+            UserId = userId,
+            Action = "Download"
+        };
+        _db.AuditLogs.Add(log);
+        await _db.SaveChangesAsync();
 
         return await _blob.DownloadFileAsync(record.FilePath);
     }
@@ -72,9 +111,17 @@ public class FileService
         if (File.Exists(record.FilePath))
             File.Delete(record.FilePath);
 
+        // Add AuditLog for delete
+        var log = new AuditLog
+        {
+            FileRecordId = record.Id,
+            UserId = userId,
+            Action = "Delete"
+        };
+        _db.AuditLogs.Add(log);
+
         _db.Files.Remove(record);
         await _db.SaveChangesAsync();
-
         return true;
     }
 
@@ -90,5 +137,12 @@ public class FileService
 
         _db.Files.RemoveRange(files);
         await _db.SaveChangesAsync();
+    }
+
+    public async Task<FileRecord?> GetFileRecordAsync(Guid fileId)
+    {
+        return await _db.Files
+            .AsNoTracking()
+            .FirstOrDefaultAsync(f => f.Id == fileId);
     }
 }

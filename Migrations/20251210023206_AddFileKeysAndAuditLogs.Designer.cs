@@ -4,6 +4,7 @@ using FileFox_Backend.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace FileFox_Backend.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251210023206_AddFileKeysAndAuditLogs")]
+    partial class AddFileKeysAndAuditLogs
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -22,7 +25,7 @@ namespace FileFox_Backend.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("FileFox_Backend.Models.AuditLog", b =>
+            modelBuilder.Entity("AuditLog", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -32,8 +35,9 @@ namespace FileFox_Backend.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<Guid>("FileRecordId")
-                        .HasColumnType("uniqueidentifier");
+                    b.Property<string>("Target")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTimeOffset>("Timestamp")
                         .HasColumnType("datetimeoffset");
@@ -42,8 +46,6 @@ namespace FileFox_Backend.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("FileRecordId");
 
                     b.ToTable("AuditLogs");
                 });
@@ -167,17 +169,6 @@ namespace FileFox_Backend.Migrations
                     b.ToTable("Users");
                 });
 
-            modelBuilder.Entity("FileFox_Backend.Models.AuditLog", b =>
-                {
-                    b.HasOne("FileFox_Backend.Models.FileRecord", "FileRecord")
-                        .WithMany("AuditLogs")
-                        .HasForeignKey("FileRecordId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("FileRecord");
-                });
-
             modelBuilder.Entity("FileFox_Backend.Models.FileKey", b =>
                 {
                     b.HasOne("FileFox_Backend.Models.FileRecord", "FileRecord")
@@ -211,8 +202,6 @@ namespace FileFox_Backend.Migrations
 
             modelBuilder.Entity("FileFox_Backend.Models.FileRecord", b =>
                 {
-                    b.Navigation("AuditLogs");
-
                     b.Navigation("Keys");
                 });
 
