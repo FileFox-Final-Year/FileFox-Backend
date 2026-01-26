@@ -1,6 +1,8 @@
 using FileFox_Backend.Data;
 using FileFox_Backend.Services;
 using FileFox_Backend.Middleware;
+using Microsoft.AspNetCore.Authorization;
+using FileFox_Backend.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -26,6 +28,7 @@ builder.Services.AddScoped<RefreshTokenService>();
 builder.Services.AddScoped<IBlobStorageService, LocalBlobStorage>();
 builder.Services.AddScoped<FileService>();
 builder.Services.AddScoped<IFileStore, EFCoreFileStore>();
+builder.Services.AddScoped<IAuthorizationHandler, FileOwnerHandler>();
 
 builder.Services.AddControllers();
 
@@ -34,6 +37,10 @@ builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
     options.AddPolicy("UserOnly", policy => policy.RequireRole("User"));
+
+    options.AddPolicy("FileOwnerPolicy", policy =>
+        policy.RequireAuthenticatedUser()
+              .AddRequirements(new FileOwnerRequirement()));
 });
 
 // -------------------- AUTHENTICATION --------------------
