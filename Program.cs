@@ -1,7 +1,6 @@
 using FileFox_Backend.Data;
 using FileFox_Backend.Services;
 using FileFox_Backend.Middleware;
-using Microsoft.AspNetCore.Authorization;
 using FileFox_Backend.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -15,20 +14,18 @@ var builder = WebApplication.CreateBuilder(args);
 // -------------------- SECRET PROVIDER --------------------
 builder.Services.AddSingleton<ISecretProvider, LocalSecretProvider>();
 
-// -------------------- CONFIGURATION --------------------
-
-// Database context
+// -------------------- DATABASE --------------------
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Register services
+// -------------------- SERVICES --------------------
 builder.Services.AddScoped<IUserStore, EFCoreUserStore>();
 builder.Services.AddScoped<ITokenService, JwtTokenService>();
 builder.Services.AddScoped<RefreshTokenService>();
 builder.Services.AddScoped<IBlobStorageService, LocalBlobStorage>();
 builder.Services.AddScoped<FileService>();
 builder.Services.AddScoped<IFileStore, EFCoreFileStore>();
-builder.Services.AddScoped<IAuthorizationHandler, FileOwnerHandler>();
+builder.Services.AddScoped<FileOwnerHandler>();
 
 builder.Services.AddControllers();
 
@@ -37,13 +34,14 @@ builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
     options.AddPolicy("UserOnly", policy => policy.RequireRole("User"));
-
     options.AddPolicy("FileOwnerPolicy", policy =>
-        policy.RequireAuthenticatedUser()
-              .AddRequirements(new FileOwnerRequirement()));
+        policy.Requirements.Add(new FileOwnerRequirement()));
 });
 
 // -------------------- AUTHENTICATION --------------------
+var jwtConfig = builder.Configuration.GetSection("Jwt");
+var key = Encoding.UTF8.GetBytes(jwtConfig["Key"]!);
+
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -51,20 +49,14 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
-    var secrets = builder.Configuration;
-
-    var key = Encoding.UTF8.GetBytes(secrets["Jwt:Key"]!);
-    var issuer = secrets["Jwt:Issuer"];
-    var audience = secrets["Jwt:Audience"];
-
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true,
         ValidateAudience = true,
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
-        ValidIssuer = issuer,
-        ValidAudience = audience,
+        ValidIssuer = jwtConfig["Issuer"],
+        ValidAudience = jwtConfig["Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(key),
         ClockSkew = TimeSpan.Zero,
         RoleClaimType = ClaimTypes.Role
@@ -96,7 +88,7 @@ builder.Services.AddSwaggerGen(c =>
                     Id = "Bearer"
                 }
             },
-            new string[] {}
+            Array.Empty<string>()
         }
     });
 });

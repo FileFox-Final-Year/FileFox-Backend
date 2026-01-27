@@ -12,10 +12,12 @@ public interface IUserStore
     );
 
     Task<User?> ValidateCredentialsAsync(
-        string userName,
+        string email,
         string password,
         CancellationToken ct = default
     );
 
-    bool TryGetById(Guid id, out User user);
+    Task UpdateAsync(User user);
+
+    Task<(bool Found, User? User)> TryGetByIdAsync(Guid id);
 }

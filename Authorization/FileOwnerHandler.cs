@@ -15,26 +15,14 @@ namespace FileFox_Backend.Authorization
             if (fileRecord == null)
                 return Task.CompletedTask;
 
-            // Get user ID from JWT
-            var userIdClaim =
+            var userIdClaim = 
                 context.User.FindFirst(ClaimTypes.NameIdentifier)
                 ?? context.User.FindFirst("sub");
 
-            if (userIdClaim == null)
+            if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
                 return Task.CompletedTask;
 
-            if (!Guid.TryParse(userIdClaim.Value, out var userId))
-                return Task.CompletedTask;
-
-            // OWNER CHECK
-            if (fileRecord.UserId == userId)
-            {
-                context.Succeed(requirement);
-                return Task.CompletedTask;
-            }
-
-            // ADMIN OVERRIDE
-            if (context.User.IsInRole("Admin"))
+            if (fileRecord.UserId == userId || context.User.IsInRole("Admin"))
             {
                 context.Succeed(requirement);
             }

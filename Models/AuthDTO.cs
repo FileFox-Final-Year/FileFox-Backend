@@ -32,3 +32,20 @@ public class RefreshResponse
     public required string AccessToken { get; set; }
     public required string RefreshToken { get; set; }
 }
+public class MfaLoginRequest
+{
+    public string Email { get; set; } = default!;
+    public string Password { get; set; } = default!;
+    public string Code { get; set; } = default!;
+}
+
+public class MfaVerifyRequest
+{
+    public string Code { get; set; } = default!;
+}
+
+public class MfaCompleteRequest
+{
+    public required string MfaToken { get; set; }
+    public required string Code { get; set; }
+}

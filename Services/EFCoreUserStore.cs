@@ -15,25 +15,25 @@ public class EFCoreUserStore : IUserStore
     }
 
     public async Task<(bool Created, User? User, string? Error)> RegisterAsync(
-    string userName, string email, string password, CancellationToken ct = default)
+        string userName, string email, string password, CancellationToken ct = default)
     {
-    if (await _db.Users.AnyAsync(u => u.Email == email, ct))
-        return (false, null, "User already exists");
+        if (await _db.Users.AnyAsync(u => u.Email == email, ct))
+            return (false, null, "User already exists");
 
-    var hash = BCrypt.Net.BCrypt.HashPassword(password); // bcrypt hash
+        var hash = BCrypt.Net.BCrypt.HashPassword(password); // bcrypt hash
 
-    var user = new User
-    {
-        Id = Guid.NewGuid(),
-        UserName = userName,
-        Email = email,
-        PasswordHash = hash
-    };
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            UserName = userName,
+            Email = email,
+            PasswordHash = hash
+        };
 
-    _db.Users.Add(user);
-    await _db.SaveChangesAsync(ct);
+        _db.Users.Add(user);
+        await _db.SaveChangesAsync(ct);
 
-    return (true, user, null);
+        return (true, user, null);
     }
 
     public async Task<User?> ValidateCredentialsAsync(
@@ -45,9 +45,15 @@ public class EFCoreUserStore : IUserStore
         return BCrypt.Net.BCrypt.Verify(password, user.PasswordHash) ? user : null;
     }
 
-    public bool TryGetById(Guid id, out User user)
+    public async Task UpdateAsync(User user)
     {
-        user = _db.Users.FirstOrDefault(u => u.Id == id)!;
-        return user is not null;
+        _db.Users.Update(user);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<(bool Found, User? User)> TryGetByIdAsync(Guid id)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id);
+        return (user != null, user);
     }
 }

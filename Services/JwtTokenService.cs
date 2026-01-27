@@ -14,11 +14,14 @@ public class JwtTokenService : ITokenService
 
     public JwtTokenService(ISecretProvider secretProvider)
     {
-        var key = secretProvider.GetSecret("Jwt:Key");
+        var key = secretProvider.GetSecret("Jwt:Key")
+                  ?? throw new InvalidOperationException("JWT key is missing");
         _key = Encoding.UTF8.GetBytes(key);
 
-        _issuer = secretProvider.GetSecret("Jwt:Issuer");
-        _audience = secretProvider.GetSecret("Jwt:Audience");
+        _issuer = secretProvider.GetSecret("Jwt:Issuer")
+                  ?? throw new InvalidOperationException("JWT issuer is missing");
+        _audience = secretProvider.GetSecret("Jwt:Audience")
+                    ?? throw new InvalidOperationException("JWT audience is missing");
     }
 
     public string CreateToken(User user)
@@ -27,10 +30,10 @@ public class JwtTokenService : ITokenService
 
         var claims = new List<Claim>
         {
-            new (JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new (ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new (JwtRegisteredClaimNames.UniqueName, user.UserName),
-            new (ClaimTypes.Name, user.UserName),
+            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(JwtRegisteredClaimNames.UniqueName, user.UserName),
+            new(ClaimTypes.Name, user.UserName),
             new(ClaimTypes.Role, user.Role)
         };
 
@@ -45,4 +48,66 @@ public class JwtTokenService : ITokenService
 
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
+
+    public string CreateMfaToken(User user)
+    {
+        var creds = new SigningCredentials(new SymmetricSecurityKey(_key), SecurityAlgorithms.HmacSha256);
+
+        // MFA token claims
+        var claims = new List<Claim>
+        {
+            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(JwtRegisteredClaimNames.UniqueName, user.UserName),
+            new(ClaimTypes.Name, user.UserName),
+            new(ClaimTypes.Role, user.Role),
+            new("typ", "mfa") // MFA type indicator
+        };
+
+        var token = new JwtSecurityToken(
+            issuer: _issuer,
+            audience: _audience,
+            claims: claims,
+            notBefore: DateTime.UtcNow,
+            expires: DateTime.UtcNow.AddMinutes(15), // short-lived MFA token
+            signingCredentials: creds
+        );
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    public ClaimsPrincipal ValidateMfaToken(string token)
+    {
+        var tokenHandler = new JwtSecurityTokenHandler();
+
+        var validationParams = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = _issuer,
+            ValidAudience = _audience,
+            IssuerSigningKey = new SymmetricSecurityKey(_key),
+            ClockSkew = TimeSpan.FromMinutes(1), // small skew
+            RoleClaimType = ClaimTypes.Role
+        };
+
+        try
+        {
+            var principal = tokenHandler.ValidateToken(token, validationParams, out var validatedToken);
+
+            // Ensure this is an MFA token
+            if (principal.FindFirst("typ")?.Value != "mfa")
+                throw new SecurityTokenException("Invalid MFA token type");
+
+            return principal;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("MFA token validation failed: " + ex.Message);
+            throw new SecurityTokenException("Invalid MFA token", ex);
+        }
+    }
+
 }

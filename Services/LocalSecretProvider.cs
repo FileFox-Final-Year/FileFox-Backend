@@ -14,7 +14,7 @@ public class LocalSecretProvider : ISecretProvider
     public string GetSecret(string key)
     {
         var value = _config[key];
-
+        
         if (string.IsNullOrWhiteSpace(value))
             throw new Exception($"Missing secret: {key}");
 

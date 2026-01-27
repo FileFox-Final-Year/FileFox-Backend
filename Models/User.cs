@@ -8,8 +8,10 @@ public class User
     public required string UserName { get; set; } = string.Empty;
     public required string Email { get; set; } = string.Empty;
     public required string PasswordHash { get; set; } = string.Empty;
+    public bool MfaEnabled { get; set; }
+    public string? MfaSecret { get; set; }
+    public DateTimeOffset? MfaEnabledAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
-
     public ICollection<FileRecord> Files { get; set; } = new List<FileRecord>();
     public string Role { get; set; } = "User";
 }
