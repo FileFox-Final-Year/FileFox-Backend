@@ -7,6 +7,6 @@ public interface ITokenService
 {
     string CreateToken(User user);
     string CreateMfaToken(User user);
-    ClaimsPrincipal ValidateMfaToken(string token);
+    ClaimsPrincipal? ValidateMfaToken(string token);
 
 }

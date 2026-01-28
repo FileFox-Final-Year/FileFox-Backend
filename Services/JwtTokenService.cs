@@ -14,6 +14,8 @@ public class JwtTokenService : ITokenService
 
     public JwtTokenService(ISecretProvider secretProvider)
     {
+        JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
+
         var key = secretProvider.GetSecret("Jwt:Key")
                   ?? throw new InvalidOperationException("JWT key is missing");
         _key = Encoding.UTF8.GetBytes(key);
@@ -76,7 +78,7 @@ public class JwtTokenService : ITokenService
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    public ClaimsPrincipal ValidateMfaToken(string token)
+    public ClaimsPrincipal? ValidateMfaToken(string token)
     {
         var tokenHandler = new JwtSecurityTokenHandler();
 
@@ -89,24 +91,28 @@ public class JwtTokenService : ITokenService
             ValidIssuer = _issuer,
             ValidAudience = _audience,
             IssuerSigningKey = new SymmetricSecurityKey(_key),
-            ClockSkew = TimeSpan.FromMinutes(1), // small skew
+            ClockSkew = TimeSpan.Zero,
+            NameClaimType = JwtRegisteredClaimNames.Sub,
             RoleClaimType = ClaimTypes.Role
         };
 
         try
         {
-            var principal = tokenHandler.ValidateToken(token, validationParams, out var validatedToken);
+            var principal = tokenHandler.ValidateToken(
+                token,
+                validationParams,
+                out _
+            );
 
             // Ensure this is an MFA token
             if (principal.FindFirst("typ")?.Value != "mfa")
-                throw new SecurityTokenException("Invalid MFA token type");
+                return null;
 
             return principal;
         }
-        catch (Exception ex)
+        catch (SecurityTokenException)
         {
-            Console.WriteLine("MFA token validation failed: " + ex.Message);
-            throw new SecurityTokenException("Invalid MFA token", ex);
+            return null;
         }
     }
 
