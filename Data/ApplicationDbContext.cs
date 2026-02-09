@@ -15,6 +15,7 @@ namespace FileFox_Backend.Data
         public DbSet<RefreshToken> RefreshTokens { get; set; }
         public DbSet<FileKey> FileKeys { get; set; } = null!;
         public DbSet<AuditLog> AuditLogs { get; set; } = null!;
+        public DbSet<UserKeyPair> UserKeyPairs { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

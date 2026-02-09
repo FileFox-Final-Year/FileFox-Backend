@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using FileFox_Backend.Models;
+using FileFox_Backend.Extensions;
 using FileFox_Backend.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -14,18 +15,15 @@ public class AuthController : ControllerBase
     private readonly IUserStore _users;
     private readonly ITokenService _tokens;
     private readonly RefreshTokenService _refreshTokens;
-    private readonly ILogger<AuthController> _logger;
 
     public AuthController(
         IUserStore users,
         ITokenService tokens,
-        RefreshTokenService refreshTokens,
-        ILogger<AuthController> logger)
+        RefreshTokenService refreshTokens)
     {
         _users = users;
         _tokens = tokens;
         _refreshTokens = refreshTokens;
-        _logger = logger;
     }
 
     // ---------------- REGISTER ----------------
@@ -36,24 +34,21 @@ public class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request, CancellationToken ct)
     {
-        if (!ModelState.IsValid) return BadRequest(ModelState);
-
-        var (created, user, error) = await _users.RegisterAsync(request.UserName, request.Email, request.Password, ct);
+        var (created, user, error) =
+            await _users.RegisterAsync(request.UserName, request.Email, request.Password, ct);
 
         if (!created)
-            return error?.Contains("exists") == true
-                ? Conflict(new { error })
-                : BadRequest(new { error });
+            return Conflict(new { error });
 
         user!.Role = "User";
         var token = _tokens.CreateToken(user);
 
-        return Created("/auth/register", new AuthResponse
+        return Created("", new AuthResponse
         {
             Token = token,
+            UserId = user.Id.ToString(),
             UserName = user.UserName,
-            Email = user.Email,
-            UserId = user.Id.ToString()
+            Email = user.Email
         });
     }
 
@@ -66,27 +61,21 @@ public class AuthController : ControllerBase
     {
         var user = await _users.ValidateCredentialsAsync(request.Email, request.Password);
         if (user == null)
-            return Unauthorized(new { error = "Invalid credentials" });
+            return Unauthorized();
 
         if (user.MfaEnabled)
         {
-            // Issue short-lived MFA token
-            var mfaToken = _tokens.CreateMfaToken(user); // 2–5 minute token
             return Ok(new
             {
                 mfaRequired = true,
-                message = "MFA required",
-                mfaToken
+                mfaToken = _tokens.CreateMfaToken(user)
             });
         }
 
-        var accessToken = _tokens.CreateToken(user);
-        var refreshToken = await _refreshTokens.GenerateTokenAsync(user.Id);
-
         return Ok(new
         {
-            AccessToken = accessToken,
-            RefreshToken = refreshToken.Token
+            AccessToken = _tokens.CreateToken(user),
+            RefreshToken = (await _refreshTokens.GenerateTokenAsync(user.Id)).Token
         });
     }
 
@@ -149,27 +138,21 @@ public class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> SetupMfa()
     {
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (userIdClaim == null) return Unauthorized();
-
-        var userId = Guid.Parse(userIdClaim);
-        var (found, user) = await _users.TryGetByIdAsync(userId);
-        if (!found || user == null) return Unauthorized();
+        var userId = User.GetUserId();
+        var (_, user) = await _users.TryGetByIdAsync(userId);
+        if (user == null) return Unauthorized();
 
         var secret = OtpNet.KeyGeneration.GenerateRandomKey(20);
-        var base32 = OtpNet.Base32Encoding.ToString(secret);
-
-        user.MfaSecret = base32;
+        user.MfaSecret = OtpNet.Base32Encoding.ToString(secret);
         user.MfaEnabled = false;
-        user.MfaEnabledAt = null;
 
         await _users.UpdateAsync(user);
 
         return Ok(new
         {
-            base32Secret = base32,
+            base32Secret = user.MfaSecret,
             otpAuthUri =
-                $"otpauth://totp/FileFox:{user.Email}?secret={base32}&issuer=FileFox"
+                $"otpauth://totp/FileFox:{user.Email}?secret={user.MfaSecret}&issuer=FileFox"
         });
     }
 
@@ -180,24 +163,18 @@ public class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> VerifyMfa([FromBody] MfaVerifyRequest req)
     {
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (userIdClaim == null) return Unauthorized();
-
-        var userId = Guid.Parse(userIdClaim);
-        var (found, user) = await _users.TryGetByIdAsync(userId);
-
-        if (!found || user == null || user.MfaSecret == null)
-            return BadRequest();
+        var userId = User.GetUserId();
+        var (_, user) = await _users.TryGetByIdAsync(userId);
+        if (user?.MfaSecret == null) return BadRequest();
 
         var totp = new OtpNet.Totp(OtpNet.Base32Encoding.ToBytes(user.MfaSecret));
-        if (!totp.VerifyTotp(req.Code, out _, new OtpNet.VerificationWindow(1, 1)))
-            return Unauthorized(new { error = "Invalid code" });
+        if (!totp.VerifyTotp(req.Code, out _))
+            return Unauthorized();
 
         user.MfaEnabled = true;
         user.MfaEnabledAt = DateTimeOffset.UtcNow;
 
         await _users.UpdateAsync(user);
-
         return Ok();
     }
 }

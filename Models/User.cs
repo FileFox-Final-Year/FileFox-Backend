@@ -13,5 +13,6 @@ public class User
     public DateTimeOffset? MfaEnabledAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public ICollection<FileRecord> Files { get; set; } = new List<FileRecord>();
+    public ICollection<UserKeyPair> KeyPairs { get; set; } = new List<UserKeyPair>();
     public string Role { get; set; } = "User";
 }
