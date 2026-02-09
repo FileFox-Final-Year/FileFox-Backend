@@ -2,6 +2,7 @@ using System.Security.Claims;
 using FileFox_Backend.Models;
 using FileFox_Backend.Extensions;
 using FileFox_Backend.Services;
+using FileFox_Backend.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -12,74 +13,63 @@ namespace FileFox_Backend.Controllers;
 [Authorize]
 public class FilesController : ControllerBase
 {
-    private readonly FileService _fileService;
-    private readonly IAuthorizationService _authorizationService;
+    private readonly ApplicationDbContext _db;
+    private readonly IBlobStorageService _blob;
 
-    public FilesController(
-        FileService fileService,
-        IAuthorizationService authorizationService)
+    public FilesController(ApplicationDbContext db, IBlobStorageService blob)
     {
-        _fileService = fileService;
-        _authorizationService = authorizationService;
+        _db = db;
+        _blob = blob;
     }
-
-    // -------------------- UPLOAD --------------------
-    [HttpPost]
-    [Consumes("multipart/form-data")]
-    [RequestSizeLimit(long.MaxValue)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> Upload([FromForm] UploadFileRequest form, CancellationToken ct)
-    {
-        if (form.File == null || form.File.Length == 0)
-            return BadRequest(new { error = "File is required" });
-
-        var userId = User.GetUserId();
-        var record = await _fileService.UploadAsync(userId, form.File);
-
-        return Created($"/files/{record.Id}", new { record.Id });
-    }
-
-    // -------------------- LIST FILES --------------------
-    [HttpGet]
-    [ProducesResponseType(typeof(IEnumerable<FileMetadataDto>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> List()
+    
+     // ---------------- INIT UPLOAD ----------------
+    [HttpPost("init")]
+    public async Task<IActionResult> Init([FromBody] InitUploadDto dto)
     {
         var userId = User.GetUserId();
-        return Ok(await _fileService.ListAsync(userId));
+        var fileId = Guid.NewGuid();
+
+        var record = new FileRecord
+        {
+            Id = fileId,
+            UserId = userId,
+            EncryptedFileName = dto.EncryptedFileName,
+            ChunkSize = dto.ChunkSize,
+            CryptoVersion = dto.CryptoVersion
+        };
+
+        var key = new FileKey
+        {
+            FileRecordId = fileId,
+            WrappedFileKey = dto.WrappedFileKey
+        };
+
+        _db.Files.Add(record);
+        _db.FileKeys.Add(key);
+        await _db.SaveChangesAsync();
+
+        // store encrypted manifest header
+        var headerBytes = Convert.FromBase64String(dto.EncryptedManifestHeader);
+        await using var memoryStream = new MemoryStream(headerBytes);
+        record.ManifestBlobPath = await _blob.PutManifestAsync(fileId, memoryStream);
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new { fileId });
     }
 
-    // -------------------- DOWNLOAD --------------------
-    [HttpGet("{id:guid}")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> Download([FromRoute] Guid id, [FromQuery] bool attachment = true)
+    // ---------------- UPLOAD CHUNK ----------------
+    [HttpPut("{id:guid}/chunks/{index:int}")]
+    public async Task<IActionResult> UploadChunk(Guid id, int index)
     {
-        var record = await _fileService.GetFileRecordAsync(id);
-        if (record == null) return NotFound();
-
-        var auth = await _authorizationService.AuthorizeAsync(User, record, "FileOwnerPolicy");
-        if (!auth.Succeeded) return Forbid();
-
-        var file = await _fileService.DownloadAsync(record.Id, record.UserId);
-        return File(file!.Value.Stream, file.Value.ContentType, file.Value.FileName);
+        await _blob.PutChunkAsync(id, index, Request.Body);
+        return Ok();
     }
 
-    // -------------------- DELETE --------------------
-    [HttpDelete("{id:guid}")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> Delete([FromRoute] Guid id)
+    // ---------------- COMPLETE UPLOAD ----------------
+    [HttpPost("{id:guid}/complete")]
+    public IActionResult Complete(Guid id)
     {
-        var record = await _fileService.GetFileRecordAsync(id);
-        if (record == null) return NotFound();
-
-        var auth = await _authorizationService.AuthorizeAsync(User, record, "FileOwnerPolicy");
-        if (!auth.Succeeded) return Forbid();
-
-        await _fileService.DeleteAsync(record.Id, record.UserId);
-        return NoContent();
+        return Ok();
     }
 }

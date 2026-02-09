@@ -9,34 +9,50 @@ public class LocalBlobStorage : IBlobStorageService
 
     public LocalBlobStorage(IConfiguration config)
     {
-        _storageRoot = config["LocalStorage:Path"] ?? "LocalFiles";
-        if (!Directory.Exists(_storageRoot))
-            Directory.CreateDirectory(_storageRoot);
+        _storageRoot = config["LocalStorage:Path"] ?? "EncryptedFiles";
+        Directory.CreateDirectory(_storageRoot);
     }
 
-    public async Task<string> UploadFileAsync(Stream fileStream, string fileName, string contentType)
-    {
-        var id = Guid.NewGuid();
-        var path = Path.Combine(_storageRoot, id.ToString());
+    private string FileDir(Guid fileId)
+        => Path.Combine(_storageRoot, fileId.ToString());
 
-        await using var fs = new FileStream(path, FileMode.Create, FileAccess.Write);
-        await fileStream.CopyToAsync(fs);
+    public async Task<string> PutChunkAsync(Guid fileId, int index, Stream ciphertext)
+    {
+        var dir = FileDir(fileId);
+        Directory.CreateDirectory(dir);
+
+        var path = Path.Combine(dir, $"chunk_{index:D6}");
+        await using var fs = File.Create(path);
+        await ciphertext.CopyToAsync(fs);
 
         return path;
     }
 
-    public async Task<(Stream FileStream, string FileName, string ContentType)?> DownloadFileAsync(string filePath)
+    public Task<Stream?> GetChunkAsync(Guid fileId, int index)
     {
-        if (!File.Exists(filePath)) return null;
+        var path = Path.Combine(FileDir(fileId), $"chunk_{index:D6}");
+        if (!File.Exists(path)) return Task.FromResult<Stream?>(null);
 
-        var fileName = Path.GetFileName(filePath);
-        var memoryStream = new MemoryStream();
-        await using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read))
-        {
-            await fs.CopyToAsync(memoryStream);
-        }
-        memoryStream.Position = 0;
+        return Task.FromResult<Stream?>(File.OpenRead(path));
+    }
 
-        return (memoryStream, fileName, "application/octet-stream");
+    public async Task<string> PutManifestAsync(Guid fileId, Stream encryptedManifest)
+    {
+        var dir = FileDir(fileId);
+        Directory.CreateDirectory(dir);
+
+        var path = Path.Combine(dir, "manifest");
+        await using var fs = File.Create(path);
+        await encryptedManifest.CopyToAsync(fs);
+
+        return path;
+    }
+
+    public Task<Stream?> GetManifestAsync(Guid fileId)
+    {
+        var path = Path.Combine(FileDir(fileId), "manifest");
+        if (!File.Exists(path)) return Task.FromResult<Stream?>(null);
+
+        return Task.FromResult<Stream?>(File.OpenRead(path));
     }
 }

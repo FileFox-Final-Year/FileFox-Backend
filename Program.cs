@@ -26,7 +26,6 @@ builder.Services.AddScoped<ITokenService, JwtTokenService>();
 builder.Services.AddScoped<RefreshTokenService>();
 builder.Services.AddScoped<IBlobStorageService, LocalBlobStorage>();
 builder.Services.AddScoped<FileService>();
-builder.Services.AddScoped<IFileStore, EFCoreFileStore>();
 builder.Services.AddScoped<FileOwnerHandler>();
 
 builder.Services.AddControllers();

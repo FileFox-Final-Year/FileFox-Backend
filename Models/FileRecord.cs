@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.Intrinsics;
 
 namespace FileFox_Backend.Models;
 
@@ -6,13 +7,11 @@ public class FileRecord
 {
     public Guid Id { get; init; }
     public Guid UserId { get; set; }
-    public required string FileName { get; init; } = string.Empty;
-    public required string ContentType { get; init; } = string.Empty;
-    public long Length { get; init; }
+    public string EncryptedFileName { get; set; } = null!;
+    public string ManifestBlobPath { get; set; } = null!;
+    public int ChunkSize { get; set; }
+    public string CryptoVersion { get; set; } = "v1";
     public DateTimeOffset UploadedAt { get; init; } = DateTimeOffset.UtcNow;
-    public byte[]? Bytes { get; set; }
-    public string? FilePath { get; set; }
     public List<FileKey> Keys { get; set; } = new();
-    public List<AuditLog> AuditLogs { get; set; } = new();
 }
 
