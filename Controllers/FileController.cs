@@ -5,6 +5,7 @@ using FileFox_Backend.Services;
 using FileFox_Backend.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.Tokens;
 
 namespace FileFox_Backend.Controllers;
 
@@ -27,7 +28,14 @@ public class FilesController : ControllerBase
     public async Task<IActionResult> Init([FromBody] InitUploadDto dto)
     {
         var userId = User.GetUserId();
+        if (userId == Guid.Empty) return Unauthorized();
+
         var fileId = Guid.NewGuid();
+
+        // store encrypted manifest header
+        var headerBytes = Convert.FromBase64String(dto.EncryptedManifestHeader);
+        await using var memoryStream = new MemoryStream(headerBytes);
+        var manifestPath = await _blob.PutManifestAsync(fileId, memoryStream);
 
         var record = new FileRecord
         {
@@ -35,7 +43,9 @@ public class FilesController : ControllerBase
             UserId = userId,
             EncryptedFileName = dto.EncryptedFileName,
             ChunkSize = dto.ChunkSize,
-            CryptoVersion = dto.CryptoVersion
+            CryptoVersion = dto.CryptoVersion,
+            ManifestBlobPath = manifestPath,
+            UploadedAt = DateTime.UtcNow
         };
 
         var key = new FileKey
@@ -46,13 +56,6 @@ public class FilesController : ControllerBase
 
         _db.Files.Add(record);
         _db.FileKeys.Add(key);
-        await _db.SaveChangesAsync();
-
-        // store encrypted manifest header
-        var headerBytes = Convert.FromBase64String(dto.EncryptedManifestHeader);
-        await using var memoryStream = new MemoryStream(headerBytes);
-        record.ManifestBlobPath = await _blob.PutManifestAsync(fileId, memoryStream);
-
         await _db.SaveChangesAsync();
 
         return Ok(new { fileId });
