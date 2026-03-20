@@ -1,11 +1,12 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using FileFox_Backend.Models;
-using FileFox_Backend.Extensions;
-using FileFox_Backend.Services;
+using FileFox_Backend.Core.Models;
+using FileFox_Backend.Infrastructure.Extensions;
+using FileFox_Backend.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
+using FileFox_Backend.Core.Interfaces;
 namespace FileFox_Backend.Controllers;
 
 [ApiController]
@@ -40,8 +41,7 @@ public class AuthController : ControllerBase
         if (!created)
             return Conflict(new { error });
 
-        user!.Role = "User";
-        var token = _tokens.CreateToken(user);
+        var token = _tokens.CreateToken(user!);
 
         return Created("", new AuthResponse
         {
@@ -86,9 +86,17 @@ public class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> LoginWithMfa([FromBody] MfaLoginRequest req)
     {
-        var user = await _users.ValidateCredentialsAsync(req.Email, req.Password);
-        if (user == null || !user.MfaEnabled || user.MfaSecret == null)
-            return Unauthorized(new { error = "Invalid credentials or MFA not enabled" });
+        var principal = _tokens.ValidateMfaToken(req.MfaToken);
+        if (principal == null)
+            return Unauthorized(new { error = "Invalid or expired MFA token" });
+
+        var userIdString = principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (!Guid.TryParse(userIdString, out var userId))
+            return Unauthorized();
+
+        var (found, user) = await _users.TryGetByIdAsync(userId);
+        if (!found || user == null || !user.MfaEnabled || user.MfaSecret == null)
+            return Unauthorized(new { error = "User not found or MFA not enabled" });
 
         var totp = new OtpNet.Totp(OtpNet.Base32Encoding.ToBytes(user.MfaSecret));
         if (!totp.VerifyTotp(req.Code, out _, new OtpNet.VerificationWindow(1, 1)))

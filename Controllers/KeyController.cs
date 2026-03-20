@@ -1,11 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
-using FileFox_Backend.Data;
-using FileFox_Backend.Models;
-using FileFox_Backend.Extensions;
+using FileFox_Backend.Infrastructure.Data;
+using FileFox_Backend.Core.Models;
+using FileFox_Backend.Infrastructure.Extensions;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 
+using FileFox_Backend.Core.Interfaces;
 namespace FileFox_Backend.Controllers;
 
 [ApiController]

@@ -3,6 +3,7 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
+using FileFox_Backend.Infrastructure.Services;
 using Xunit;
 
 namespace FileFox_Backend.Tests;

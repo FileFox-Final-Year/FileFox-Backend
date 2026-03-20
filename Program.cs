@@ -1,8 +1,11 @@
-using FileFox_Backend.Data;
-using FileFox_Backend.Services;
-using FileFox_Backend.Middleware;
-using FileFox_Backend.Authorization;
+using FileFox_Backend.Core.Interfaces;
+using FileFox_Backend.Core.Models;
+using FileFox_Backend.Infrastructure.Data;
+using FileFox_Backend.Infrastructure.Services;
+using FileFox_Backend.Infrastructure.Middleware;
+using FileFox_Backend.Infrastructure.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -18,17 +21,28 @@ builder.Services.AddSingleton<ISecretProvider, LocalSecretProvider>();
 
 // -------------------- DATABASE --------------------
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseInMemoryDatabase("FileFoxMemoryDb"));
 
 // -------------------- SERVICES --------------------
 builder.Services.AddScoped<IUserStore, EFCoreUserStore>();
 builder.Services.AddScoped<ITokenService, JwtTokenService>();
 builder.Services.AddScoped<RefreshTokenService>();
 builder.Services.AddScoped<IBlobStorageService, LocalBlobStorage>();
+builder.Services.AddScoped<IFileStore, LocalFileStore>();
 builder.Services.AddScoped<FileService>();
-builder.Services.AddScoped<FileOwnerHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, FileOwnerHandler>();
 
 builder.Services.AddControllers();
+
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
 
 // -------------------- AUTHORIZATION --------------------
 builder.Services.AddAuthorization(options =>
@@ -61,7 +75,7 @@ builder.Services.AddAuthentication(options =>
         ValidAudience = jwtConfig["Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(key),
 
-        ClockSkew = TimeSpan.Zero,
+        ClockSkew = TimeSpan.FromMinutes(5),
 
         RoleClaimType = ClaimTypes.Role,
         NameClaimType = JwtRegisteredClaimNames.Sub
@@ -74,10 +88,10 @@ builder.Services.AddSwaggerGen(c =>
 {
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT Authorization header. Example: 'Bearer {token}'",
+        Description = "JWT Authorization header using the Bearer scheme. Example: 'abc123token'",
         Name = "Authorization",
         In = ParameterLocation.Header,
-        Type = SecuritySchemeType.ApiKey,
+        Type = SecuritySchemeType.Http,
         Scheme = "bearer",
         BearerFormat = "JWT"
     });
@@ -111,6 +125,8 @@ if (app.Environment.IsDevelopment())
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
 app.UseHttpsRedirection();
+
+app.UseCors();
 
 app.UseAuthentication();
 app.UseAuthorization();
