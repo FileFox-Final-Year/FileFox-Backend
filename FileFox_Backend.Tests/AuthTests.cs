@@ -3,7 +3,6 @@ using System.Threading.Tasks;
 using FileFox_Backend.Core.Interfaces;
 using FileFox_Backend.Core.Models;
 using FileFox_Backend.Infrastructure.Data;
-using FileFox_Backend.Core.Models;
 using FileFox_Backend.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Xunit;

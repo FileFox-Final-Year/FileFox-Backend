@@ -1,15 +1,9 @@
-using System.Security.Claims;
 using FileFox_Backend.Core.Models;
-using FileFox_Backend.Infrastructure;
 using FileFox_Backend.Infrastructure.Extensions;
-using FileFox_Backend.Infrastructure.Services;
 using FileFox_Backend.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
-
-using FileFox_Backend.Core.Interfaces;
 using FileFox_Backend.Infrastructure.Results;
 namespace FileFox_Backend.Controllers;
 
@@ -29,6 +23,22 @@ public class FilesController : ControllerBase
         _fileStore = fileStore;
     }
     
+    // ---------------- HELPER: Get file if authorized ----------------
+    private async Task<FileRecord?> GetFileIfAuthorized(Guid fileId)
+    {
+        var userId = User.GetUserId();
+
+        return await _db.Files
+            .Include(f => f.Keys)
+            .FirstOrDefaultAsync(f =>
+                f.Id == fileId &&
+                (f.UserId == userId || _db.FileAccesses.Any(a =>
+                    a.FileRecordId == f.Id &&
+                    a.UserId == userId &&
+                    a.RevokedAt == null))
+            );
+    }
+
      // ---------------- INIT UPLOAD ----------------
     [HttpPost("init")]
     public async Task<IActionResult> Init([FromBody] InitUploadDto dto)
@@ -131,12 +141,8 @@ public class FilesController : ControllerBase
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetMetadata(Guid id)
     {
-        var userId = User.GetUserId();
-        var record = await _db.Files
-            .Include(f => f.Keys)
-            .FirstOrDefaultAsync(f => f.Id == id && f.UserId == userId);
-
-        if (record == null) return NotFound();
+        var record = await GetFileIfAuthorized(id);
+        if (record == null) return Forbid();
 
         var dto = new FileMetadataDto
         {
@@ -156,9 +162,8 @@ public class FilesController : ControllerBase
     [HttpGet("{id:guid}/manifest")]
     public async Task<IActionResult> GetManifest(Guid id)
     {
-        var userId = User.GetUserId();
-        var record = await _db.Files.FirstOrDefaultAsync(f => f.Id == id && f.UserId == userId);
-        if (record == null) return NotFound();
+        var record = await GetFileIfAuthorized(id);
+        if (record == null) return Forbid();
 
         var stream = await _blob.GetManifestAsync(id);
         if (stream == null) return NotFound("Manifest not found");
@@ -170,9 +175,8 @@ public class FilesController : ControllerBase
     [HttpGet("{id:guid}/chunks/{index:int}")]
     public async Task<IActionResult> GetChunk(Guid id, int index)
     {
-        var userId = User.GetUserId();
-        var record = await _db.Files.FirstOrDefaultAsync(f => f.Id == id && f.UserId == userId);
-        if (record == null) return NotFound();
+        var record = await GetFileIfAuthorized(id);
+        if (record == null) return Forbid();
 
         var stream = await _blob.GetChunkAsync(id, index);
         if (stream == null) return NotFound("Chunk not found");
@@ -184,10 +188,8 @@ public class FilesController : ControllerBase
     [HttpGet("{id:guid}/download")]
     public async Task<IActionResult> Download(Guid id)
     {
-        var userId = User.GetUserId();
-        var record = await _db.Files.FirstOrDefaultAsync(f => f.Id == id && f.UserId == userId);
-
-        if (record == null) return NotFound();
+        var record = await GetFileIfAuthorized(id);
+        if (record == null) return Forbid();
 
         if (record.CryptoVersion == "v1-simple")
         {
@@ -214,5 +216,35 @@ public class FilesController : ControllerBase
         {
             FileDownloadName = record.EncryptedFileName
         };
+    }
+
+    // ---------------- GET WRAPPED DEK ----------------
+    [HttpGet("{id:guid}/key")]
+    public async Task<IActionResult> GetFileKey(Guid id)
+    {
+        var userId = User.GetUserId();
+
+        var access = await _db.FileAccesses.FirstOrDefaultAsync(f =>
+            f.FileRecordId == id &&
+            f.UserId == userId &&
+            f.RevokedAt == null);
+
+        if (access != null)
+        {
+            return Ok(new
+            {
+                wrappedDek = access.WrappedDek,
+                keyVersion = access.KeyVersion
+            });
+        }
+
+        // If user is owner, return owner's key
+        var ownerKey = await _db.FileKeys.FirstOrDefaultAsync(k =>
+            k.FileRecordId == id &&
+            k.FileRecord.UserId == userId);
+
+        if (ownerKey == null) return Forbid();
+
+        return Ok(new { wrappedDek = ownerKey.WrappedFileKey, keyVersion = 1 });
     }
 }

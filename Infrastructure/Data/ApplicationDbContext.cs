@@ -1,7 +1,6 @@
 using FileFox_Backend.Core.Models;
 using Microsoft.EntityFrameworkCore;
 
-using FileFox_Backend.Core.Interfaces;
 namespace FileFox_Backend.Infrastructure.Data
 {
     public class ApplicationDbContext : DbContext
@@ -17,6 +16,7 @@ namespace FileFox_Backend.Infrastructure.Data
         public DbSet<FileKey> FileKeys { get; set; } = null!;
         public DbSet<AuditLog> AuditLogs { get; set; } = null!;
         public DbSet<UserKeyPair> UserKeyPairs { get; set; } = null!;
+        public DbSet<FileFox_Backend.Core.Models.FileAccess> FileAccesses { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

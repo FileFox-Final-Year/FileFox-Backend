@@ -1,5 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using FileFox_Backend.Core.Models;
 using FileFox_Backend.Infrastructure.Extensions;
 using FileFox_Backend.Infrastructure.Services;
@@ -38,10 +36,10 @@ public class AuthController : ControllerBase
         var (created, user, error) =
             await _users.RegisterAsync(request.UserName, request.Email, request.Password, ct);
 
-        if (!created)
+        if (!created || user == null)
             return Conflict(new { error });
 
-        var token = _tokens.CreateToken(user!);
+        var token = _tokens.CreateToken(user);
 
         return Created("", new AuthResponse
         {
