@@ -1,5 +1,5 @@
-using FileFox_Backend.Models;
-using FileFox_Backend.Services;
+using FileFox_Backend.Core.Models;
+using FileFox_Backend.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FileFox_Backend.Controllers;

@@ -4,7 +4,6 @@ using FileFox_Backend.Infrastructure.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
-using FileFox_Backend.Core.Interfaces;
 namespace FileFox_Backend.Infrastructure.Services;
 
 public class LocalFileStore : IFileStore
