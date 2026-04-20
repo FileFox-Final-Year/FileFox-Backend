@@ -7,6 +7,8 @@ public class FileMetadataDto
 {
     public Guid Id { get; init; }
     public required string FileName { get; init; }
+    public string? FolderPath { get; set; }
+    public int MetadataVersion { get; set; }
     public string? ContentType { get; init; }
     public long Length { get; init; }
     public DateTimeOffset UploadedAt { get; init; }

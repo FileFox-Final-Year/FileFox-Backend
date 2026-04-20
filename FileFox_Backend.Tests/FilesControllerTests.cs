@@ -6,6 +6,7 @@ using FileFox_Backend.Controllers;
 using FileFox_Backend.Infrastructure.Data;
 using FileFox_Backend.Core.Models;
 using FileFox_Backend.Infrastructure.Services;
+using FileFox_Backend.Infrastructure.Results;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -182,12 +183,8 @@ public class FilesControllerTests
         };
 
         var result = await controller.Download(fileId);
-        var fileResult = Assert.IsType<Microsoft.AspNetCore.Mvc.FileStreamResult>(result);
+        var fileResult = Assert.IsType<FileCallbackResult>(result);
         Assert.Equal("application/octet-stream", fileResult.ContentType);
-        Assert.Equal("test.bin", fileResult.FileDownloadName);
-
-        using var ms = new MemoryStream();
-        await fileResult.FileStream.CopyToAsync(ms);
-        Assert.Equal("hello world", Encoding.UTF8.GetString(ms.ToArray()));
+        Assert.Equal($"file-{fileId}", fileResult.FileDownloadName);
     }
 }

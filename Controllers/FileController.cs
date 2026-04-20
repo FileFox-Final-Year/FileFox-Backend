@@ -29,20 +29,17 @@ public class FilesController : ControllerBase
     {
         var userId = User.GetUserId();
 
-        var file = await _db.Files
+        var hasAccess = await _db.FileAccesses.AnyAsync(a =>
+            a.FileRecordId == fileId &&
+            a.UserId == userId &&
+            a.RevokedAt == null);
+
+        if (!hasAccess)
+            return null;
+
+        return await _db.Files
             .Include(f => f.Keys)
             .FirstOrDefaultAsync(f => f.Id == fileId);
-
-        if (file == null) return null;
-
-        // Check if user is the owner or has access via FileAccess
-            var hasAccess = await _db.FileAccesses.AnyAsync(a =>
-                a.FileRecordId == fileId &&
-                a.UserId == userId &&
-                a.FileEncryptionVersion == file.FileEncryptionVersion &&
-                a.RevokedAt == null);
-
-        return hasAccess ? file : null;
     }
 
      // ---------------- INIT UPLOAD ----------------
@@ -64,6 +61,8 @@ public class FilesController : ControllerBase
             Id = fileId,
             UserId = userId,
             EncryptedFileName = dto.EncryptedFileName,
+            EncryptedFolderPath = dto.EncryptedFolderPath,
+            MetadataVersion = dto.MetadataVersion,
             TotalSize = dto.TotalSize,
             ContentType = dto.ContentType,
             ChunkSize = dto.ChunkSize,
@@ -110,19 +109,6 @@ public class FilesController : ControllerBase
         return Ok();
     }
 
-    // ---------------- DIRECT UPLOAD ----------------
-    [HttpPost("upload")]
-    public async Task<IActionResult> Upload([FromForm] UploadFileRequest request, CancellationToken ct)
-    {
-        var userId = User.GetUserId();
-        if (userId == Guid.Empty) return Unauthorized();
-
-        if (request.File == null) return BadRequest("No file uploaded");
-
-        var fileId = await _fileStore.SaveAsync(userId, request.File, ct);
-        return Ok(new { fileId });
-    }
-
     // ---------------- COMPLETE UPLOAD ----------------
     [HttpPost("{id:guid}/complete")]
     public async Task<IActionResult> Complete(Guid id)
@@ -144,6 +130,8 @@ public class FilesController : ControllerBase
         {
             Id = f.Id,
             FileName = f.EncryptedFileName,
+            FolderPath = f.EncryptedFolderPath,
+            MetadataVersion = f.MetadataVersion,
             ContentType = f.ContentType,
             Length = f.TotalSize,
             UploadedAt = f.UploadedAt,
@@ -166,6 +154,8 @@ public class FilesController : ControllerBase
         {
             Id = record.Id,
             FileName = record.EncryptedFileName,
+            FolderPath = record.EncryptedFolderPath,
+            MetadataVersion = record.MetadataVersion,
             ContentType = record.ContentType,
             Length = record.TotalSize,
             UploadedAt = record.UploadedAt,
@@ -210,30 +200,28 @@ public class FilesController : ControllerBase
         var record = await GetFileIfAuthorized(id);
         if (record == null) return Forbid();
 
-        if (record.CryptoVersion == "v1-simple")
-        {
-            var stream = await _blob.GetChunkAsync(id, 0);
-            if (stream == null) return NotFound("File content not found");
-            return File(stream, record.ContentType ?? "application/octet-stream", record.EncryptedFileName);
-        }
-
-        // For chunked files, we can provide a combined stream or instructions to download chunks.
-        // For a true "download" endpoint, let's try to stream all chunks.
-        return new FileCallbackResult(record.ContentType ?? "application/octet-stream", async (outputStream, _) =>
-        {
-            int index = 0;
-            while (true)
+        return new FileCallbackResult(
+            record.ContentType ?? "application/octet-stream",
+            async (outputStream, _) =>
             {
-                var chunkStream = await _blob.GetChunkAsync(id, index);
-                if (chunkStream == null) break;
+                int index = 0;
 
-                await chunkStream.CopyToAsync(outputStream);
-                await chunkStream.DisposeAsync();
-                index++;
-            }
-        })
+                while (true)
+                {
+                    var chunkStream = await _blob.GetChunkAsync(id, index);
+
+                    if (chunkStream == null)
+                        break;
+
+                    await chunkStream.CopyToAsync(outputStream);
+
+                    await chunkStream.DisposeAsync();
+
+                    index++;
+                }
+            })
         {
-            FileDownloadName = record.EncryptedFileName
+            FileDownloadName = $"file-{id}"
         };
     }
 
@@ -244,7 +232,9 @@ public class FilesController : ControllerBase
         var userId = User.GetUserId();
 
         var file = await _db.Files.FindAsync(id);
-        if (file == null) return NotFound();
+
+        if (file == null)
+            return NotFound();
 
         var access = await _db.FileAccesses.FirstOrDefaultAsync(f =>
             f.FileRecordId == id &&
@@ -252,17 +242,15 @@ public class FilesController : ControllerBase
             f.FileEncryptionVersion == file.FileEncryptionVersion &&
             f.RevokedAt == null);
 
-        if (access != null)
-        {
-            return Ok(new
-            {
-                wrappedDek = access.WrappedDek,
-                keyVersion = access.KeyVersion,
-                encryptedVersion = access.FileEncryptionVersion
-            });
-        }
+        if (access == null)
+            return Forbid();
 
-        return Forbid();
+        return Ok(new
+        {
+            wrappedDek = access.WrappedDek,
+            keyVersion = access.KeyVersion,
+            encryptedVersion = access.FileEncryptionVersion
+        });
     }
 
     // ---------------- ROTATE KEYS ----------------

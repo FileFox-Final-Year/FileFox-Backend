@@ -8,6 +8,8 @@ public class FileRecord
     public Guid Id { get; init; }
     public Guid UserId { get; set; }
     public string EncryptedFileName { get; set; } = null!;
+    public string? EncryptedFolderPath { get; set; }
+    public int MetadataVersion { get; set; } = 1;
     public string? ContentType { get; set; }
     public long TotalSize { get; set; }
     public string ManifestBlobPath { get; set; } = null!;
