@@ -15,4 +15,6 @@ public class FileRecord
     public string CryptoVersion { get; set; } = "v1";
     public DateTimeOffset UploadedAt { get; init; } = DateTimeOffset.UtcNow;
     public List<FileKey> Keys { get; set; } = new();
+    public int FileEncryptionVersion { get; set; } = 1;
+
 }

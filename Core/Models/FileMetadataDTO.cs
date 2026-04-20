@@ -10,6 +10,7 @@ public class FileMetadataDto
     public string? ContentType { get; init; }
     public long Length { get; init; }
     public DateTimeOffset UploadedAt { get; init; }
+    public int EncryptedVersion { get; init; }
     public List<string> WrappedKeys { get; set; } = new();
     public string CryptoVersion { get; set; } = "v1";
 }

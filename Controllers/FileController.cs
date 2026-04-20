@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using FileFox_Backend.Infrastructure.Results;
+using FileAccessEntity = FileFox_Backend.Core.Models.FileAccess;
 namespace FileFox_Backend.Controllers;
 
 [ApiController]
@@ -23,20 +24,25 @@ public class FilesController : ControllerBase
         _fileStore = fileStore;
     }
     
-    // ---------------- HELPER: Get file if authorized ----------------
+    // ---------------- AUTH HELPER ----------------
     private async Task<FileRecord?> GetFileIfAuthorized(Guid fileId)
     {
         var userId = User.GetUserId();
 
-        return await _db.Files
+        var file = await _db.Files
             .Include(f => f.Keys)
-            .FirstOrDefaultAsync(f =>
-                f.Id == fileId &&
-                (f.UserId == userId || _db.FileAccesses.Any(a =>
-                    a.FileRecordId == f.Id &&
-                    a.UserId == userId &&
-                    a.RevokedAt == null))
-            );
+            .FirstOrDefaultAsync(f => f.Id == fileId);
+
+        if (file == null) return null;
+
+        // Check if user is the owner or has access via FileAccess
+            var hasAccess = await _db.FileAccesses.AnyAsync(a =>
+                a.FileRecordId == fileId &&
+                a.UserId == userId &&
+                a.FileEncryptionVersion == file.FileEncryptionVersion &&
+                a.RevokedAt == null);
+
+        return hasAccess ? file : null;
     }
 
      // ---------------- INIT UPLOAD ----------------
@@ -63,7 +69,8 @@ public class FilesController : ControllerBase
             ChunkSize = dto.ChunkSize,
             CryptoVersion = dto.CryptoVersion,
             ManifestBlobPath = manifestPath,
-            UploadedAt = DateTime.UtcNow
+            UploadedAt = DateTime.UtcNow,
+            FileEncryptionVersion = 1
         };
 
         var key = new FileKey
@@ -71,6 +78,19 @@ public class FilesController : ControllerBase
             FileRecordId = fileId,
             WrappedFileKey = dto.WrappedFileKey
         };
+
+        _db.FileAccesses.Add(new FileAccessEntity
+        {
+            Id = Guid.NewGuid(),
+            FileRecordId = fileId,
+            UserId = userId,
+            WrappedDek = dto.WrappedFileKey,
+            Permissions = "owner",
+            KeyVersion = 1,
+            FileEncryptionVersion = record.FileEncryptionVersion,
+            CreatedAt = DateTime.UtcNow,
+            RevokedAt = null
+        });
 
         _db.Files.Add(record);
         _db.FileKeys.Add(key);
@@ -83,9 +103,8 @@ public class FilesController : ControllerBase
     [HttpPut("{id:guid}/chunks/{index:int}")]
     public async Task<IActionResult> UploadChunk(Guid id, int index)
     {
-        var userId = User.GetUserId();
-        var record = await _db.Files.FirstOrDefaultAsync(f => f.Id == id && f.UserId == userId);
-        if (record == null) return NotFound();
+        var record = await GetFileIfAuthorized(id);
+        if (record == null) return Forbid();
 
         await _blob.PutChunkAsync(id, index, Request.Body);
         return Ok();
@@ -108,10 +127,8 @@ public class FilesController : ControllerBase
     [HttpPost("{id:guid}/complete")]
     public async Task<IActionResult> Complete(Guid id)
     {
-        var userId = User.GetUserId();
-        var record = await _db.Files.FirstOrDefaultAsync(f => f.Id == id && f.UserId == userId);
-
-        if (record == null) return NotFound();
+        var record = await GetFileIfAuthorized(id);
+        if (record == null) return Forbid();
 
         return Ok(new { status = "Completed", fileId = id });
     }
@@ -131,7 +148,8 @@ public class FilesController : ControllerBase
             Length = f.TotalSize,
             UploadedAt = f.UploadedAt,
             CryptoVersion = f.CryptoVersion,
-            WrappedKeys = f.Keys.Select(k => k.WrappedFileKey).ToList()
+            WrappedKeys = f.Keys.Select(k => k.WrappedFileKey).ToList(),
+            EncryptedVersion = f.FileEncryptionVersion
         });
 
         return Ok(dtos);
@@ -152,7 +170,8 @@ public class FilesController : ControllerBase
             Length = record.TotalSize,
             UploadedAt = record.UploadedAt,
             CryptoVersion = record.CryptoVersion,
-            WrappedKeys = record.Keys.Select(k => k.WrappedFileKey).ToList()
+            WrappedKeys = record.Keys.Select(k => k.WrappedFileKey).ToList(),
+            EncryptedVersion = record.FileEncryptionVersion
         };
 
         return Ok(dto);
@@ -224,9 +243,13 @@ public class FilesController : ControllerBase
     {
         var userId = User.GetUserId();
 
+        var file = await _db.Files.FindAsync(id);
+        if (file == null) return NotFound();
+
         var access = await _db.FileAccesses.FirstOrDefaultAsync(f =>
             f.FileRecordId == id &&
             f.UserId == userId &&
+            f.FileEncryptionVersion == file.FileEncryptionVersion &&
             f.RevokedAt == null);
 
         if (access != null)
@@ -234,17 +257,70 @@ public class FilesController : ControllerBase
             return Ok(new
             {
                 wrappedDek = access.WrappedDek,
-                keyVersion = access.KeyVersion
+                keyVersion = access.KeyVersion,
+                encryptedVersion = access.FileEncryptionVersion
             });
         }
 
-        // If user is owner, return owner's key
-        var ownerKey = await _db.FileKeys.FirstOrDefaultAsync(k =>
-            k.FileRecordId == id &&
-            k.FileRecord.UserId == userId);
+        return Forbid();
+    }
 
-        if (ownerKey == null) return Forbid();
+    // ---------------- ROTATE KEYS ----------------
+    [HttpPost("{id:guid}/rotate")]
+    public async Task<IActionResult> Rotate(Guid id, [FromBody] RotateRequest request)
+    {
+        var userId = User.GetUserId();
 
-        return Ok(new { wrappedDek = ownerKey.WrappedFileKey, keyVersion = 1 });
+        var isOwner = await _db.FileAccesses.AnyAsync(f =>
+            f.FileRecordId == id &&
+            f.UserId == userId &&
+            f.Permissions == "owner" &&
+            f.RevokedAt == null);
+
+        if (!isOwner)
+            return Forbid();
+
+        var file = await _db.Files.FindAsync(id);
+        if (file == null)
+            return NotFound();
+
+        file.FileEncryptionVersion++;
+        var newVersion = file.FileEncryptionVersion;
+
+        foreach (var member in request.Members)
+        {
+            _db.FileAccesses.Add(new FileAccessEntity
+            {
+                Id = Guid.NewGuid(),
+                FileRecordId = id,
+                UserId = member.UserId,
+                WrappedDek = member.WrappedDek,
+                Permissions = "read",
+                KeyVersion = member.KeyVersion,
+                FileEncryptionVersion = newVersion,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            message = "File rotated successfully",
+            version = newVersion
+        });
+    }
+
+    // ---------------- DTOs ----------------
+    public class RotateRequest
+    {
+        public List<RotateMember> Members { get; set; } = new();
+    }
+
+    public class RotateMember
+    {
+        public Guid UserId { get; set; }
+        public string WrappedDek { get; set; } = null!;
+        public int KeyVersion { get; set; }
     }
 }

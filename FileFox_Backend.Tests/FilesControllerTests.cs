@@ -80,7 +80,29 @@ public class FilesControllerTests
 
         var userId = Guid.NewGuid();
         var fileId = Guid.NewGuid();
-        db.Files.Add(new FileRecord { Id = fileId, UserId = userId, EncryptedFileName = "test.bin", ManifestBlobPath = "path" });
+
+        // Add file
+        db.Files.Add(new FileRecord 
+        { 
+            Id = fileId, 
+            UserId = userId, 
+            EncryptedFileName = "test.bin", 
+            ManifestBlobPath = "path",
+            FileEncryptionVersion = 1
+        });
+
+        // Add user access (important!)
+        db.FileAccesses.Add(new FileFox_Backend.Core.Models.FileAccess
+        {
+            FileRecordId = fileId,
+            UserId = userId,
+            Permissions = "owner", // <-- REQUIRED
+            WrappedDek = "key123",
+            KeyVersion = 1,
+            FileEncryptionVersion = 1,
+            CreatedAt = DateTime.UtcNow
+        });
+
         db.FileKeys.Add(new FileKey { FileRecordId = fileId, WrappedFileKey = "key123" });
         await db.SaveChangesAsync();
 
@@ -124,8 +146,23 @@ public class FilesControllerTests
             EncryptedFileName = "test.bin",
             ManifestBlobPath = "path",
             CryptoVersion = "v1-simple",
-            ContentType = "application/octet-stream"
+            ContentType = "application/octet-stream",
+            FileEncryptionVersion = 1
         });
+
+        // Add user access
+        db.FileAccesses.Add(new FileFox_Backend.Core.Models.FileAccess
+        {
+            FileRecordId = fileId,
+            UserId = userId,
+            Permissions = "owner", // <-- REQUIRED
+            WrappedDek = "key1",
+            KeyVersion = 1,
+            FileEncryptionVersion = 1,
+            CreatedAt = DateTime.UtcNow,
+            RevokedAt = null
+        });
+
         await db.SaveChangesAsync();
 
         // Put a chunk

@@ -10,4 +10,6 @@ public class FileAccess
     public int KeyVersion { get; set; } // For future key rotation
     public DateTime CreatedAt { get; set; }
     public DateTime? RevokedAt { get; set; }
+    public int FileEncryptionVersion { get; set; } = 1;
+
 }

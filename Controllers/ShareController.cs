@@ -4,6 +4,7 @@ using FileFox_Backend.Infrastructure.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using FileAccessEntity = FileFox_Backend.Core.Models.FileAccess;
 
 namespace FileFox_Backend.Controllers;
 
@@ -24,6 +25,11 @@ public class ShareController : ControllerBase
     public async Task<IActionResult> ShareFile(Guid fileId, [FromBody] ShareRequest request)
      {
         var userId = User.GetUserId();
+
+        // Validate file exists
+        var file = await _dbContext.Files.FindAsync(fileId);
+        if (file == null)
+            return NotFound();
 
         // Check ownership via FileAccess (NOT FileRecord)
         var isOwner = await _dbContext.FileAccesses.AnyAsync(f =>
@@ -53,11 +59,12 @@ public class ShareController : ControllerBase
             existing.WrappedDek = request.WrappedDek;
             existing.Permissions = request.Permissions;
             existing.KeyVersion = request.KeyVersion;
+            existing.FileEncryptionVersion = file.FileEncryptionVersion;
             existing.RevokedAt = null; // reactivate if previously revoked
         }
         else
         {
-            _dbContext.FileAccesses.Add(new Core.Models.FileAccess
+            _dbContext.FileAccesses.Add(new FileAccessEntity
             {
                 Id = Guid.NewGuid(),
                 FileRecordId = fileId,
@@ -65,6 +72,7 @@ public class ShareController : ControllerBase
                 WrappedDek = request.WrappedDek,
                 Permissions = request.Permissions ?? "read",
                 KeyVersion = request.KeyVersion,
+                FileEncryptionVersion = file.FileEncryptionVersion,
                 CreatedAt = DateTime.UtcNow,
                 RevokedAt = null
             });
@@ -106,6 +114,7 @@ public class ShareController : ControllerBase
         return Ok(new { message = "Share revoked" });
     }
 
+// ---------------- GET SHARES ----------------
     [HttpGet("{fileId:guid}/shares")]
     public async Task<IActionResult> GetShares(Guid fileId)
     {
