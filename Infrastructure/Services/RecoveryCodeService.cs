@@ -16,7 +16,7 @@ public class RecoveryCodeService : IRecoveryCodeService
     }
 
     // Generate recovery codes in format: XXXX-XXXX-XXXX (12 characters + dashes).
-    public async Task<(List<string> PlaintextCodes, List<string> HashedCodes)> GenerateRecoveryCodesAsync(int count = 10)
+    public Task<(List<string> PlaintextCodes, List<string> HashedCodes)> GenerateRecoveryCodesAsync(int count = 10)
     {
         var plaintextCodes = new List<string>();
         var hashedCodes = new List<string>();
@@ -28,7 +28,7 @@ public class RecoveryCodeService : IRecoveryCodeService
             hashedCodes.Add(HashRecoveryCode(plaintext));
         }
 
-        return (plaintextCodes, hashedCodes);
+        return Task.FromResult((plaintextCodes, hashedCodes));
     }
 
     public async Task<bool> ValidateAndUseRecoveryCodeAsync(Guid userId, string plaintext, int keyVersion)
