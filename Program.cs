@@ -30,6 +30,7 @@ builder.Services.AddScoped<RefreshTokenService>();
 builder.Services.AddScoped<IBlobStorageService, LocalBlobStorage>();
 builder.Services.AddScoped<IFileStore, LocalFileStore>();
 builder.Services.AddScoped<FileService>();
+builder.Services.AddScoped<IRecoveryCodeService, RecoveryCodeService>();
 builder.Services.AddScoped<IAuthorizationHandler, FileOwnerHandler>();
 
 builder.Services.AddControllers();

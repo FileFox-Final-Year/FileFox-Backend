@@ -17,6 +17,7 @@ namespace FileFox_Backend.Infrastructure.Data
         public DbSet<AuditLog> AuditLogs { get; set; } = null!;
         public DbSet<UserKeyPair> UserKeyPairs { get; set; } = null!;
         public DbSet<FileFox_Backend.Core.Models.FileAccess> FileAccesses { get; set; } = null!;
+        public DbSet<RecoveryCode> RecoveryCodes { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
