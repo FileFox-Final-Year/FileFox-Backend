@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Threading.Tasks;
 using FileFox_Backend.Controllers;
 using FileFox_Backend.Core.Models;
+using FileFox_Backend.Infrastructure.Services;
 using FileFox_Backend.Infrastructure.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -65,7 +66,7 @@ public class RotationTests
 
         await db.SaveChangesAsync();
 
-        var controller = new FilesController(db, null!, null!)
+        var controller = new FilesController(db, null!, null!, new AuditService(db), new ManifestService(), new FileAuthorizationService(db))
         {
             ControllerContext = new ControllerContext
             {
@@ -131,7 +132,7 @@ public class RotationTests
 
         await db.SaveChangesAsync();
 
-        var controller = new FilesController(db, null!, null!)
+        var controller = new FilesController(db, null!, null!, new AuditService(db), new ManifestService(), new FileAuthorizationService(db))
         {
             ControllerContext = new ControllerContext
             {
@@ -181,7 +182,7 @@ public class RotationTests
 
         await db.SaveChangesAsync();
 
-        var controller = new FilesController(db, null!, null!)
+        var controller = new FilesController(db, null!, null!, new AuditService(db), new ManifestService(), new FileAuthorizationService(db))
         {
             ControllerContext = new ControllerContext
             {
@@ -233,7 +234,7 @@ public class RotationTests
 
         await db.SaveChangesAsync();
 
-        var controller = new FilesController(db, null!, null!)
+        var controller = new FilesController(db, null!, null!, new AuditService(db), new ManifestService(), new FileAuthorizationService(db))
         {
             ControllerContext = new ControllerContext
             {

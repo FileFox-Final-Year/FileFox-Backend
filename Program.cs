@@ -12,6 +12,7 @@ using Microsoft.OpenApi.Models;
 using System.Security.Claims;
 using System.Text;
 using System.IdentityModel.Tokens.Jwt;
+using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
@@ -32,6 +33,48 @@ builder.Services.AddScoped<IFileStore, LocalFileStore>();
 builder.Services.AddScoped<FileService>();
 builder.Services.AddScoped<IRecoveryCodeService, RecoveryCodeService>();
 builder.Services.AddScoped<IAuthorizationHandler, FileOwnerHandler>();
+builder.Services.AddScoped<AuditService>();
+builder.Services.AddScoped<ManifestService>();
+builder.Services.AddScoped<IFileAuthorizationService, FileAuthorizationService>();
+
+// -------------------- RATE LIMITING --------------------
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("AuthLimiter", opt =>
+    {
+        opt.PermitLimit = 5;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
+
+    options.AddFixedWindowLimiter("ShareLimiter", opt =>
+    {
+        opt.PermitLimit = 10;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
+
+    options.AddFixedWindowLimiter("KeyLimiter", opt =>
+    {
+        opt.PermitLimit = 10;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
+
+    options.AddFixedWindowLimiter("FileLimiter", opt =>
+    {
+        opt.PermitLimit = 30;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
+    
+    options.AddFixedWindowLimiter("MfaLimiter", opt =>
+    {
+        opt.PermitLimit = 5;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
+});
 
 builder.Services.AddControllers();
 
@@ -124,6 +167,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseMiddleware<GlobalExceptionMiddleware>();
+
+app.UseRateLimiting();
 
 app.UseHttpsRedirection();
 

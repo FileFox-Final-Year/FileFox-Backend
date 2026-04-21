@@ -3,26 +3,32 @@ using FileFox_Backend.Infrastructure.Extensions;
 using FileFox_Backend.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 using FileFox_Backend.Core.Interfaces;
 namespace FileFox_Backend.Controllers;
 
 [ApiController]
 [Route("auth")]
+[Authorize]
+[EnableRateLimiting("AuthLimiter")]
 public class AuthController : ControllerBase
 {
     private readonly IUserStore _users;
     private readonly ITokenService _tokens;
     private readonly RefreshTokenService _refreshTokens;
+    private readonly AuditService _auditService;
 
     public AuthController(
         IUserStore users,
         ITokenService tokens,
-        RefreshTokenService refreshTokens)
+        RefreshTokenService refreshTokens,
+        AuditService auditService)
     {
         _users = users;
         _tokens = tokens;
         _refreshTokens = refreshTokens;
+        _auditService = auditService;
     }
 
     // ---------------- REGISTER ----------------
@@ -40,6 +46,9 @@ public class AuthController : ControllerBase
             return Conflict(new { error });
 
         var token = _tokens.CreateToken(user);
+
+        // Audit log: user registered
+        await _auditService.LogActionAsync(user.Id, "USER_REGISTERED");
 
         return Created("", new AuthResponse
         {
@@ -70,6 +79,9 @@ public class AuthController : ControllerBase
             });
         }
 
+        // Audit log: user logged in
+        await _auditService.LogActionAsync(user.Id, "USER_LOGGED_IN");
+
         return Ok(new
         {
             AccessToken = _tokens.CreateToken(user),
@@ -79,6 +91,7 @@ public class AuthController : ControllerBase
 
     // ---------------- LOGIN (STEP 2: MFA) ----------------
     [AllowAnonymous]
+    [EnableRateLimiting("MfaLimiter")]
     [HttpPost("login/mfa")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -102,6 +115,9 @@ public class AuthController : ControllerBase
 
         var accessToken = _tokens.CreateToken(user);
         var refreshToken = await _refreshTokens.GenerateTokenAsync(user.Id);
+
+        // Audit log: user logged in with MFA
+        await _auditService.LogActionAsync(user.Id, "USER_LOGGED_IN_WITH_MFA");
 
         return Ok(new
         {
@@ -139,6 +155,7 @@ public class AuthController : ControllerBase
 
     // ---------------- MFA SETUP ----------------
     [Authorize]
+    [EnableRateLimiting("MfaLimiter")]
     [HttpPost("mfa/setup")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -164,6 +181,7 @@ public class AuthController : ControllerBase
 
     // ---------------- MFA VERIFY ----------------
     [Authorize]
+    [EnableRateLimiting("MfaLimiter")]
     [HttpPost("mfa/verify")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]

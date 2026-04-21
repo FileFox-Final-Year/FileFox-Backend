@@ -29,7 +29,10 @@ public class FilesControllerTests
         using var db = GetInMemoryDb();
         var blob = new LocalBlobStorage(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         var fileStore = new LocalFileStore(db, blob);
-        var controller = new FilesController(db, blob, fileStore);
+        var auditService = new AuditService(db);
+        var manifestService = new ManifestService();
+        var authService = new FileAuthorizationService(db);
+        var controller = new FilesController(db, blob, fileStore, auditService, manifestService, authService);
 
         // Mock user identity
         var userId = Guid.NewGuid().ToString();
@@ -77,7 +80,10 @@ public class FilesControllerTests
         using var db = GetInMemoryDb();
         var blob = new LocalBlobStorage(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         var fileStore = new LocalFileStore(db, blob);
-        var controller = new FilesController(db, blob, fileStore);
+        var auditService = new AuditService(db);
+        var manifestService = new ManifestService();
+        var authService = new FileAuthorizationService(db);
+        var controller = new FilesController(db, blob, fileStore, auditService, manifestService, authService);
 
         var userId = Guid.NewGuid();
         var fileId = Guid.NewGuid();
@@ -135,7 +141,10 @@ public class FilesControllerTests
         using var db = GetInMemoryDb();
         var blob = new LocalBlobStorage(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         var fileStore = new LocalFileStore(db, blob);
-        var controller = new FilesController(db, blob, fileStore);
+        var auditService = new AuditService(db);
+        var manifestService = new ManifestService();
+        var authService = new FileAuthorizationService(db);
+        var controller = new FilesController(db, blob, fileStore, auditService, manifestService, authService);
 
         var userId = Guid.NewGuid();
         var fileId = Guid.NewGuid();

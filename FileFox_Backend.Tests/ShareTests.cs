@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using FileFox_Backend.Controllers;
 using FileFox_Backend.Core.Models;
 using FileFox_Backend.Infrastructure.Data;
+using FileFox_Backend.Infrastructure.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -77,7 +78,7 @@ namespace FileFox_Backend.Tests.Phase5
 
             await db.SaveChangesAsync();
 
-            var controller = new ShareController(db)
+            var controller = new ShareController(db, new FileAuthorizationService(db), new AuditService(db))
             {
                 ControllerContext = new ControllerContext
                 {
@@ -154,7 +155,7 @@ namespace FileFox_Backend.Tests.Phase5
 
             await db.SaveChangesAsync();
 
-            var shareController = new ShareController(db)
+            var shareController = new ShareController(db, new FileAuthorizationService(db), new AuditService(db))
             {
                 ControllerContext = new ControllerContext
                 {
@@ -224,7 +225,7 @@ namespace FileFox_Backend.Tests.Phase5
 
             await db.SaveChangesAsync();
 
-            var controller = new ShareController(db)
+            var controller = new ShareController(db, new FileAuthorizationService(db), new AuditService(db))
             {
                 ControllerContext = new ControllerContext
                 {

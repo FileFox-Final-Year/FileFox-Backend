@@ -1,9 +1,11 @@
 using FileFox_Backend.Core.Models;
 using FileFox_Backend.Infrastructure.Extensions;
 using FileFox_Backend.Infrastructure.Data;
+using FileFox_Backend.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.RateLimiting;
 using FileFox_Backend.Infrastructure.Results;
 using FileAccessEntity = FileFox_Backend.Core.Models.FileAccess;
 namespace FileFox_Backend.Controllers;
@@ -11,17 +13,24 @@ namespace FileFox_Backend.Controllers;
 [ApiController]
 [Route("files")]
 [Authorize]
+[EnableRateLimiting("FileLimiter")]
 public class FilesController : ControllerBase
 {
     private readonly ApplicationDbContext _db;
     private readonly IBlobStorageService _blob;
     private readonly IFileStore _fileStore;
+    private readonly AuditService _auditService;
+    private readonly ManifestService _manifestService;
+    private readonly FileAuthorizationService _authService;
 
-    public FilesController(ApplicationDbContext db, IBlobStorageService blob, IFileStore fileStore)
+    public FilesController(ApplicationDbContext db, IBlobStorageService blob, IFileStore fileStore, AuditService auditService, ManifestService manifestService, FileAuthorizationService fileAuthorizationService)
     {
         _db = db;
         _blob = blob;
         _fileStore = fileStore;
+        _auditService = auditService;
+        _manifestService = manifestService;
+        _authService = fileAuthorizationService;
     }
     
     // ---------------- AUTH HELPER ----------------
@@ -46,6 +55,14 @@ public class FilesController : ControllerBase
     [HttpPost("init")]
     public async Task<IActionResult> Init([FromBody] InitUploadDto dto)
     {
+        if (string.IsNullOrWhiteSpace(dto.EncryptedManifestHeader))
+            return BadRequest("Manifest header required");
+        
+        try{
+            Convert.FromBase64String(dto.EncryptedManifestHeader);}
+        catch{
+            return BadRequest("Manifest header must be valid Base64");}
+
         var userId = User.GetUserId();
         if (userId == Guid.Empty) return Unauthorized();
 
@@ -95,6 +112,9 @@ public class FilesController : ControllerBase
         _db.FileKeys.Add(key);
         await _db.SaveChangesAsync();
 
+        // Audit log: file upload initiated
+        await _auditService.LogFileActionAsync(userId, fileId, "FILE_UPLOAD_INITIATED");
+
         return Ok(new { fileId });
     }
 
@@ -106,6 +126,11 @@ public class FilesController : ControllerBase
         if (record == null) return Forbid();
 
         await _blob.PutChunkAsync(id, index, Request.Body);
+
+        // Audit log: chunk uploaded
+        var userId = User.GetUserId();
+        await _auditService.LogFileActionAsync(userId, id, $"FILE_CHUNK_UPLOADED_INDEX_{index}");
+
         return Ok();
     }
 
@@ -115,6 +140,10 @@ public class FilesController : ControllerBase
     {
         var record = await GetFileIfAuthorized(id);
         if (record == null) return Forbid();
+
+        // Audit log: file upload completed
+        var userId = User.GetUserId();
+        await _auditService.LogFileActionAsync(userId, id, "FILE_UPLOAD_COMPLETED");
 
         return Ok(new { status = "Completed", fileId = id });
     }
@@ -199,6 +228,10 @@ public class FilesController : ControllerBase
     {
         var record = await GetFileIfAuthorized(id);
         if (record == null) return Forbid();
+
+        // Audit log: file download initiated
+        var userId = User.GetUserId();
+        await _auditService.LogFileActionAsync(userId, id, "FILE_DOWNLOAD_INITIATED");
 
         return new FileCallbackResult(
             record.ContentType ?? "application/octet-stream",
@@ -299,7 +332,55 @@ public class FilesController : ControllerBase
         });
     }
 
-    // ---------------- DTOs ----------------
+    // ---------------- VERIFY MANIFEST INTEGRITY ----------------
+    [HttpPost("{id:guid}/verify-integrity")]
+    public async Task<IActionResult> VerifyIntegrity(Guid id, [FromBody] VerifyIntegrityRequest request)
+    {
+        var record = await GetFileIfAuthorized(id);
+        if (record == null) return Forbid();
+
+        var userId = User.GetUserId();
+
+        // Verify manifest hash is valid
+        var isHashValid = _manifestService.VerifyManifestHash(request.ManifestHash, request.ChunkHashes);
+        
+        if (!isHashValid)
+        {
+            // Log integrity violation
+            await _auditService.LogFileActionAsync(userId, id, "MANIFEST_INTEGRITY_VIOLATION_DETECTED");
+            return BadRequest(new { error = "Manifest integrity verification failed", reason = "Hash mismatch" });
+        }
+
+        // Verify chunk sequence (no reordering, no drops)
+        var isSequenceValid = _manifestService.VerifyChunkSequence(request.ChunkHashes.Count, request.AvailableChunkIndices);
+
+        if (!isSequenceValid)
+        {
+            await _auditService.LogFileActionAsync(userId, id, "MANIFEST_CHUNK_SEQUENCE_VIOLATION_DETECTED");
+            return BadRequest(new { error = "Manifest integrity verification failed", reason = "Chunk sequence violation (reorder/drop)" });
+        }
+
+        // Log successful verification
+        await _auditService.LogFileActionAsync(userId, id, "MANIFEST_INTEGRITY_VERIFIED");
+
+        var report = _manifestService.GenerateIntegrityReport(id, request.ChunkHashes.Count, request.ManifestHash, true);
+        
+        return Ok(new
+        {
+            verified = true,
+            message = "Manifest integrity verified successfully",
+            report
+        });
+    }
+
+    // -------- DTOs --------
+    public class VerifyIntegrityRequest
+    {
+        public string ManifestHash { get; set; } = null!;
+        public List<string> ChunkHashes { get; set; } = new();
+        public List<int> AvailableChunkIndices { get; set; } = new();
+    }
+
     public class RotateRequest
     {
         public List<RotateMember> Members { get; set; } = new();

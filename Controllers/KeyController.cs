@@ -6,12 +6,14 @@ using FileFox_Backend.Infrastructure.Extensions;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using FileFox_Backend.Core.Interfaces;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace FileFox_Backend.Controllers;
 
 [ApiController]
 [Route("keys")]
 [Authorize]
+[EnableRateLimiting("KeyLimiter")]
 public class KeyController : ControllerBase
 {
     private readonly ApplicationDbContext _dbContext;

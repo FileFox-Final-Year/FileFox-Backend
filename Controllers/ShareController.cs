@@ -1,23 +1,30 @@
 using FileFox_Backend.Core.Models;
 using FileFox_Backend.Infrastructure.Data;
 using FileFox_Backend.Infrastructure.Extensions;
+using FileFox_Backend.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using FileAccessEntity = FileFox_Backend.Core.Models.FileAccess;
 
 namespace FileFox_Backend.Controllers;
 
 [ApiController]
-[Route("files")]
+[Route("files/shares")]
 [Authorize]
+[EnableRateLimiting("ShareLimiter")]
 public class ShareController : ControllerBase
 {
     private readonly ApplicationDbContext _dbContext;
+    private readonly FileAuthorizationService _authService;
+    private readonly AuditService _auditService;
 
-    public ShareController(ApplicationDbContext dbContext)
+    public ShareController(ApplicationDbContext dbContext, FileAuthorizationService authService, AuditService auditService)
     {
         _dbContext = dbContext;
+        _authService = authService;
+        _auditService = auditService;
     }
 
 // ---------------- SHARE FILE ----------------
@@ -32,14 +39,8 @@ public class ShareController : ControllerBase
             return NotFound();
 
         // Check ownership via FileAccess (NOT FileRecord)
-        var isOwner = await _dbContext.FileAccesses.AnyAsync(f =>
-            f.FileRecordId == fileId &&
-            f.UserId == userId &&
-            f.Permissions == "owner" &&
-            f.RevokedAt == null);
-
-        if (!isOwner)
-            return Forbid();
+        if (!await _authService.IsOwner(fileId, userId))
+        return Forbid();
 
         // Validate recipient exists
         var recipientExists = await _dbContext.Users
@@ -80,6 +81,9 @@ public class ShareController : ControllerBase
 
         await _dbContext.SaveChangesAsync();
 
+        // Audit log: file shared with user
+        await _auditService.LogFileActionAsync(userId, fileId, $"FILE_SHARED_WITH_USER_{request.RecipientUserId}");
+
         return Ok(new { message = "File shared successfully" });
     }
 
@@ -90,13 +94,7 @@ public class ShareController : ControllerBase
         var userId = User.GetUserId();
 
         // Only owner can revoke
-        var isOwner = await _dbContext.FileAccesses.AnyAsync(f =>
-            f.FileRecordId == fileId &&
-            f.UserId == userId &&
-            f.Permissions == "owner" &&
-            f.RevokedAt == null);
-
-        if (!isOwner)
+        if (!await _authService.IsOwner(fileId, userId))
             return Forbid();
 
         var access = await _dbContext.FileAccesses.FirstOrDefaultAsync(a =>
@@ -111,6 +109,9 @@ public class ShareController : ControllerBase
 
         await _dbContext.SaveChangesAsync();
 
+        // Audit log: file share revoked
+        await _auditService.LogFileActionAsync(userId, fileId, $"FILE_SHARE_REVOKED_FROM_USER_{recipientUserId}");
+
         return Ok(new { message = "Share revoked" });
     }
 
@@ -121,13 +122,7 @@ public class ShareController : ControllerBase
         var userId = User.GetUserId();
 
         // Only owner can view shares
-        var isOwner = await _dbContext.FileAccesses.AnyAsync(f =>
-            f.FileRecordId == fileId &&
-            f.UserId == userId &&
-            f.Permissions == "owner" &&
-            f.RevokedAt == null);
-
-        if (!isOwner)
+        if (!await _authService.IsOwner(fileId, userId))
             return Forbid();
 
         var shares = await _dbContext.FileAccesses
