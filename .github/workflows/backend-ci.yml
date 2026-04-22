@@ -6,19 +6,20 @@ on:
   pull_request:
     branches: [ main ]
 
-# -------------------- REQUIRED FOR CODEQL --------------------
+# -------------------- Required for CodeQL--------------------
 permissions:
   contents: read
   security-events: write
 
 jobs:
+
+# ------------------ Build and Test ------------------
   build:
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
 
-    # ---------------- .NET ----------------
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
@@ -30,26 +31,14 @@ jobs:
     - name: Build
       run: dotnet build --configuration Release --no-restore
 
-    - name: Run tests
+    - name: Run unit tests
       run: dotnet test --configuration Release --no-build
-
-    # ---------------- SECURITY SCAN ----------------
+      
+# ---------------- SECURITY SCAN ----------------
     - name: Vulnerable packages scan
       run: dotnet list package --vulnerable --include-transitive
 
-    # ---------------- CODEQL ----------------
-    - name: CodeQL Init
-      uses: github/codeql-action/init@v3
-      with:
-        languages: csharp
-
-    - name: Build for CodeQL
-      run: dotnet build --configuration Release --no-restore
-
-    - name: CodeQL Analyze
-      uses: github/codeql-action/analyze@v3
-
-    # ---------------- DOCKER ----------------
+    # ---------------- Docker ----------------
     - name: Build Docker image
       run: docker build -t filefox-api .
 
@@ -82,3 +71,30 @@ jobs:
       with:
         name: coverage
         path: "**/coverage.cobertura.xml"
+
+
+# ------------------ CodeQL Analysis ------------------
+  codeql:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: csharp
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build for CodeQL
+      run: dotnet build FileFox-Backend.sln --configuration Release --no-restore
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
