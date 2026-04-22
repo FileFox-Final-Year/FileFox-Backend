@@ -8,6 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>FileFox_Backend.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Remove="FileFox_Backend.Tests/**" />
     <EmbeddedResource Remove="FileFox_Backend.Tests/**" />
     <None Remove="FileFox_Backend.Tests/**" />
