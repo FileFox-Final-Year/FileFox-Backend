@@ -2,15 +2,12 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-COPY FileFox-Backend.sln ./
-COPY FileFox_Backend/*.csproj ./FileFox_Backend/
-COPY FileFox_Backend.Tests/*.csproj ./FileFox_Backend.Tests/
-
-RUN dotnet restore FileFox-Backend.sln
-
+# Copy solution + all projects first
 COPY . .
 
-RUN dotnet publish FileFox-Backend.sln -c Release -o /app/publish
+RUN dotnet restore
+
+RUN dotnet publish -c Release -o /app/publish --no-restore
 
 # -------- RUNTIME STAGE --------
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
