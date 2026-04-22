@@ -13,6 +13,7 @@ using System.Security.Claims;
 using System.Text;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
@@ -48,40 +49,74 @@ builder.Services.AddScoped<IFileAuthorizationService, FileAuthorizationService>(
 // -------------------- RATE LIMITING --------------------
 builder.Services.AddRateLimiter(options =>
 {
-    options.AddFixedWindowLimiter("AuthLimiter", opt =>
-    {
-        opt.PermitLimit = 5;
-        opt.Window = TimeSpan.FromMinutes(1);
-        opt.QueueLimit = 0;
-    });
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    options.AddFixedWindowLimiter("ShareLimiter", opt =>
+    if (builder.Environment.IsEnvironment("Testing"))
     {
-        opt.PermitLimit = 10;
-        opt.Window = TimeSpan.FromMinutes(1);
-        opt.QueueLimit = 0;
-    });
+        options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(_ =>
+            RateLimitPartition.GetNoLimiter("test"));
+        return;
+    }
 
-    options.AddFixedWindowLimiter("KeyLimiter", opt =>
-    {
-        opt.PermitLimit = 10;
-        opt.Window = TimeSpan.FromMinutes(1);
-        opt.QueueLimit = 0;
-    });
+    options.AddPolicy("AuthLimiter", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.User.Identity?.Name
+                ?? context.Connection.RemoteIpAddress?.ToString()
+                ?? "anonymous",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
 
-    options.AddFixedWindowLimiter("FileLimiter", opt =>
-    {
-        opt.PermitLimit = 30;
-        opt.Window = TimeSpan.FromMinutes(1);
-        opt.QueueLimit = 0;
-    });
-    
-    options.AddFixedWindowLimiter("MfaLimiter", opt =>
-    {
-        opt.PermitLimit = 5;
-        opt.Window = TimeSpan.FromMinutes(1);
-        opt.QueueLimit = 0;
-    });
+    options.AddPolicy("FileLimiter", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.User.Identity?.Name
+                ?? context.Connection.RemoteIpAddress?.ToString()
+                ?? "anonymous",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
+    options.AddPolicy("MfaLimiter", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.User.Identity?.Name
+                ?? context.Connection.RemoteIpAddress?.ToString()
+                ?? "anonymous",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 3,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
+    options.AddPolicy("KeyLimiter", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.User.Identity?.Name
+                ?? context.Connection.RemoteIpAddress?.ToString()
+                ?? "anonymous",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
+    options.AddPolicy("ShareLimiter", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.User.Identity?.Name
+                ?? context.Connection.RemoteIpAddress?.ToString()
+                ?? "anonymous",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
 });
 
 builder.Services.AddControllers();
@@ -90,7 +125,7 @@ builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.AllowAnyOrigin() // Change to frontend URL in production
               .AllowAnyMethod()
               .AllowAnyHeader();
     });
@@ -166,25 +201,50 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// -------------------- MIDDLEWARE --------------------
-if (app.Environment.IsDevelopment())
-{
-    app.UseDeveloperExceptionPage();
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
+// -------------------- ERROR HANDLING --------------------
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
-app.UseRateLimiting();
+// -------------------- HTTPS + HSTS --------------------
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
 
 app.UseHttpsRedirection();
 
-app.UseCors();
+// -------------------- ROUTING --------------------
+app.UseRouting();
 
+// -------------------- CORS --------------------
+app.UseCors(policy =>
+{
+    policy.WithOrigins("http://localhost:3000") // change to frontend URL
+          .AllowAnyHeader()
+          .AllowAnyMethod();
+});
+
+// -------------------- SECURITY HEADERS --------------------
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["X-Frame-Options"] = "DENY";
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    context.Response.Headers["Permissions-Policy"] = "geolocation=()";
+
+    await next();
+});
+
+// -------------------- RATE LIMITING --------------------
+app.UseRateLimiter();
+
+// -------------------- AUTH --------------------
 app.UseAuthentication();
 app.UseAuthorization();
 
+// -------------------- HEALTH CHECK --------------------
+app.MapGet("/health", () => Results.Ok("OK"));
+
+// -------------------- ENDPOINTS --------------------
 app.MapControllers();
 
 app.Run();

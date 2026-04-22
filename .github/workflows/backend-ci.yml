@@ -7,15 +7,13 @@ on:
     branches: [ main ]
 
 jobs:
-
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-
     - uses: actions/checkout@v4
 
+    # ---------------- .NET ----------------
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
@@ -24,8 +22,54 @@ jobs:
     - name: Restore
       run: dotnet restore
 
-    - name: Build
-      run: dotnet build --configuration Release --no-restore
+    - name: Build (strict)
+      run: dotnet build --configuration Release --no-restore /warnaserror
 
-    - name: Test
+    - name: Run tests
       run: dotnet test --configuration Release --no-build
+
+    # ---------------- SECURITY ----------------
+    - name: Vulnerable packages scan
+      run: dotnet list package --vulnerable --include-transitive
+
+    - name: CodeQL Init
+      uses: github/codeql-action/init@v3
+      with:
+        languages: csharp
+
+    - name: CodeQL Analyze
+      uses: github/codeql-action/analyze@v3
+
+    # ---------------- DOCKER ----------------
+    - name: Build Docker image
+      run: docker build -t filefox-api .
+
+    - name: Run API container
+      run: |
+        docker run -d -p 8080:8080 \
+          -e ASPNETCORE_ENVIRONMENT=Testing \
+          --name filefox-api filefox-api
+
+    - name: Wait for API startup
+      run: sleep 15
+
+    - name: Health check
+      run: curl -f http://localhost:8080/health
+
+    # ---------------- SECURITY SCAN ----------------
+    - name: Trivy scan
+      run: |
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy image filefox-api
+
+    # ---------------- INTEGRATION TESTS ----------------
+    - name: Integration tests
+      run: API_URL=http://localhost:8080 dotnet test FileFox_Backend.Tests --filter "Category=Integration"
+
+    # ---------------- ARTIFACTS ----------------
+    - name: Upload coverage
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: coverage
+        path: "**/coverage.cobertura.xml"
