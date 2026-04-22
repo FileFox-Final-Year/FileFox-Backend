@@ -34,7 +34,7 @@ jobs:
     - name: Run unit tests
       run: dotnet test --configuration Release --no-build
 
-# ---------------- SECURITY SCAN (KEPT) ----------------
+# ---------------- SECURITY SCAN ----------------
     - name: Vulnerable packages scan
       run: dotnet list package --vulnerable --include-transitive
 
