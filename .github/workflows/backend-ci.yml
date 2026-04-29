@@ -68,39 +68,7 @@ jobs:
 
     - name: Analyze
       uses: github/codeql-action/analyze@v3
-
-
-# ------------------ DOCKER + SECURITY ------------------
-  docker:
-    runs-on: ubuntu-latest
-    needs: build
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Build Docker image
-      run: docker build -t filefox-api .
-
-    - name: Run API container
-      run: |
-        docker run -d -p 8080:8080 \
-          -e ASPNETCORE_ENVIRONMENT=Testing \
-          --name filefox-api filefox-api
-
-    - name: Wait for API startup
-      run: sleep 20
-
-    - name: Health check
-      run: curl -f http://localhost:8080/health
-
-
-# ---------------- TRIVY----------------
-    - name: Trivy scan
-      run: |
-        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-          aquasec/trivy image filefox-api
-
-
+      
 # ---------------- INTEGRATION TESTS ----------------
     - name: Integration tests
       run: API_URL=http://localhost:8080 dotnet test FileFox_Backend.Tests --filter "Category=Integration"

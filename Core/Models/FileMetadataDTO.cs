@@ -7,12 +7,11 @@ public class FileMetadataDto
 {
     public Guid Id { get; init; }
     public required string FileName { get; init; }
-    public string? FolderPath { get; set; }
-    public int MetadataVersion { get; set; }
+    public string? EncryptedMetadata { get; init; }
     public string? ContentType { get; init; }
     public long Length { get; init; }
     public DateTimeOffset UploadedAt { get; init; }
-    public int EncryptedVersion { get; init; }
     public List<string> WrappedKeys { get; set; } = new();
+    public string? RecoveryWrappedKey { get; set; }
     public string CryptoVersion { get; set; } = "v1";
 }

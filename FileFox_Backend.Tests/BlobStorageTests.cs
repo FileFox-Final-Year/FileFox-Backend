@@ -4,31 +4,38 @@ using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using FileFox_Backend.Infrastructure.Services;
+using FileFox_Backend.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace FileFox_Backend.Tests;
 
 public class BlobStorageTests
 {
-    private LocalBlobStorage GetBlobStorage()
+    private ApplicationDbContext GetInMemoryDb()
     {
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection()
-            .Build();
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        return new ApplicationDbContext(options);
+    }
 
-        return new LocalBlobStorage(config);
+    private SqlBlobStorage GetBlobStorage(ApplicationDbContext db)
+    {
+        return new SqlBlobStorage(db);
     }
 
     [Fact]
     public async Task PutAndGetChunk_Works()
     {
-        var blob = GetBlobStorage();
+        using var db = GetInMemoryDb();
+        var blob = GetBlobStorage(db);
         var fileId = Guid.NewGuid();
         var chunkData = Encoding.UTF8.GetBytes("test chunk data");
 
         using var ms = new MemoryStream(chunkData);
-        var path = await blob.PutChunkAsync(fileId, 0, ms);
-        Assert.True(File.Exists(path));
+        var key = await blob.PutChunkAsync(fileId, 0, ms);
+        Assert.NotEmpty(key);
 
         using var retrieved = await blob.GetChunkAsync(fileId, 0);
         Assert.NotNull(retrieved);
@@ -40,13 +47,14 @@ public class BlobStorageTests
     [Fact]
     public async Task PutAndGetManifest_Works()
     {
-        var blob = GetBlobStorage();
+        using var db = GetInMemoryDb();
+        var blob = GetBlobStorage(db);
         var fileId = Guid.NewGuid();
         var manifestData = Encoding.UTF8.GetBytes("manifest content");
 
         using var ms = new MemoryStream(manifestData);
-        var path = await blob.PutManifestAsync(fileId, ms);
-        Assert.True(File.Exists(path));
+        var key = await blob.PutManifestAsync(fileId, ms);
+        Assert.NotEmpty(key);
 
         using var retrieved = await blob.GetManifestAsync(fileId);
         Assert.NotNull(retrieved);

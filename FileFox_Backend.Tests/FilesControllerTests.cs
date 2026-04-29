@@ -6,7 +6,6 @@ using FileFox_Backend.Controllers;
 using FileFox_Backend.Infrastructure.Data;
 using FileFox_Backend.Core.Models;
 using FileFox_Backend.Infrastructure.Services;
-using FileFox_Backend.Infrastructure.Results;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -27,12 +26,10 @@ public class FilesControllerTests
     public async Task InitUpload_CreatesFileRecordAndManifest()
     {
         using var db = GetInMemoryDb();
-        var blob = new LocalBlobStorage(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
-        var fileStore = new LocalFileStore(db, blob);
-        var auditService = new AuditService(db);
-        var manifestService = new ManifestService();
-        var authService = new FileAuthorizationService(db);
-        var controller = new FilesController(db, blob, fileStore, auditService, manifestService, authService);
+        var blob = new SqlBlobStorage(db);
+        var fileStore = new DbFileStore(db, blob);
+        var audit = new AuditService(db);
+        var controller = new FilesController(db, blob, fileStore, audit);
 
         // Mock user identity
         var userId = Guid.NewGuid().ToString();
@@ -71,45 +68,21 @@ public class FilesControllerTests
         Assert.Equal(dto.EncryptedFileName, record.EncryptedFileName);
         Assert.False(string.IsNullOrEmpty(record.ManifestBlobPath));
 
-        Assert.True(File.Exists(record.ManifestBlobPath));
+        Assert.NotNull(await blob.GetManifestAsync((Guid)fileId));
     }
 
     [Fact]
     public async Task GetMetadata_IncludesKeys()
     {
         using var db = GetInMemoryDb();
-        var blob = new LocalBlobStorage(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
-        var fileStore = new LocalFileStore(db, blob);
-        var auditService = new AuditService(db);
-        var manifestService = new ManifestService();
-        var authService = new FileAuthorizationService(db);
-        var controller = new FilesController(db, blob, fileStore, auditService, manifestService, authService);
+        var blob = new SqlBlobStorage(db);
+        var fileStore = new DbFileStore(db, blob);
+        var audit = new AuditService(db);
+        var controller = new FilesController(db, blob, fileStore, audit);
 
         var userId = Guid.NewGuid();
         var fileId = Guid.NewGuid();
-
-        // Add file
-        db.Files.Add(new FileRecord 
-        { 
-            Id = fileId, 
-            UserId = userId, 
-            EncryptedFileName = "test.bin", 
-            ManifestBlobPath = "path",
-            FileEncryptionVersion = 1
-        });
-
-        // Add user access (important!)
-        db.FileAccesses.Add(new FileFox_Backend.Core.Models.FileAccess
-        {
-            FileRecordId = fileId,
-            UserId = userId,
-            Permissions = "owner", // <-- REQUIRED
-            WrappedDek = "key123",
-            KeyVersion = 1,
-            FileEncryptionVersion = 1,
-            CreatedAt = DateTime.UtcNow
-        });
-
+        db.Files.Add(new FileRecord { Id = fileId, UserId = userId, EncryptedFileName = "test.bin", ManifestBlobPath = "path" });
         db.FileKeys.Add(new FileKey { FileRecordId = fileId, WrappedFileKey = "key123" });
         await db.SaveChangesAsync();
 
@@ -139,12 +112,10 @@ public class FilesControllerTests
     public async Task Download_ReturnsFileStream_ForSimpleFile()
     {
         using var db = GetInMemoryDb();
-        var blob = new LocalBlobStorage(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
-        var fileStore = new LocalFileStore(db, blob);
-        var auditService = new AuditService(db);
-        var manifestService = new ManifestService();
-        var authService = new FileAuthorizationService(db);
-        var controller = new FilesController(db, blob, fileStore, auditService, manifestService, authService);
+        var blob = new SqlBlobStorage(db);
+        var fileStore = new DbFileStore(db, blob);
+        var audit = new AuditService(db);
+        var controller = new FilesController(db, blob, fileStore, audit);
 
         var userId = Guid.NewGuid();
         var fileId = Guid.NewGuid();
@@ -156,23 +127,8 @@ public class FilesControllerTests
             EncryptedFileName = "test.bin",
             ManifestBlobPath = "path",
             CryptoVersion = "v1-simple",
-            ContentType = "application/octet-stream",
-            FileEncryptionVersion = 1
+            ContentType = "application/octet-stream"
         });
-
-        // Add user access
-        db.FileAccesses.Add(new FileFox_Backend.Core.Models.FileAccess
-        {
-            FileRecordId = fileId,
-            UserId = userId,
-            Permissions = "owner", // <-- REQUIRED
-            WrappedDek = "key1",
-            KeyVersion = 1,
-            FileEncryptionVersion = 1,
-            CreatedAt = DateTime.UtcNow,
-            RevokedAt = null
-        });
-
         await db.SaveChangesAsync();
 
         // Put a chunk
@@ -192,8 +148,12 @@ public class FilesControllerTests
         };
 
         var result = await controller.Download(fileId);
-        var fileResult = Assert.IsType<FileCallbackResult>(result);
+        var fileResult = Assert.IsType<Microsoft.AspNetCore.Mvc.FileStreamResult>(result);
         Assert.Equal("application/octet-stream", fileResult.ContentType);
-        Assert.Equal($"file-{fileId}", fileResult.FileDownloadName);
+        Assert.Equal("test.bin", fileResult.FileDownloadName);
+
+        using var ms = new MemoryStream();
+        await fileResult.FileStream.CopyToAsync(ms);
+        Assert.Equal("hello world", Encoding.UTF8.GetString(ms.ToArray()));
     }
 }

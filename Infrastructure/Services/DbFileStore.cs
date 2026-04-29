@@ -3,21 +3,20 @@ using FileFox_Backend.Core.Models;
 using FileFox_Backend.Infrastructure.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-
 namespace FileFox_Backend.Infrastructure.Services;
 
-public class LocalFileStore : IFileStore
+public class DbFileStore : IFileStore
 {
     private readonly ApplicationDbContext _db;
     private readonly IBlobStorageService _blob;
 
-    public LocalFileStore(ApplicationDbContext db, IBlobStorageService blob)
+    public DbFileStore(ApplicationDbContext db, IBlobStorageService blob)
     {
         _db = db;
         _blob = blob;
     }
 
-    public async Task<Guid> SaveAsync(Guid userId, IFormFile file, CancellationToken ct = default)
+    public async Task<Guid> SaveAsync(Guid userId, IFormFile file, string? encryptedMetadata = null, string? recoveryWrappedKey = null, string? wrappedFileKey = null, CancellationToken ct = default)
     {
         var fileId = Guid.NewGuid();
 
@@ -29,15 +28,27 @@ public class LocalFileStore : IFileStore
             Id = fileId,
             UserId = userId,
             EncryptedFileName = file.FileName,
+            EncryptedMetadata = encryptedMetadata,
             ContentType = file.ContentType,
             TotalSize = file.Length,
             ChunkSize = (int)file.Length,
             CryptoVersion = "v1-simple",
             ManifestBlobPath = string.Empty,
-            UploadedAt = DateTimeOffset.UtcNow
+            UploadedAt = DateTimeOffset.UtcNow,
+            RecoveryWrappedKey = recoveryWrappedKey
         };
 
         _db.Files.Add(record);
+
+        if (!string.IsNullOrEmpty(wrappedFileKey))
+        {
+            _db.FileKeys.Add(new FileKey
+            {
+                FileRecordId = fileId,
+                WrappedFileKey = wrappedFileKey
+            });
+        }
+
         await _db.SaveChangesAsync(ct);
 
         return fileId;
@@ -62,6 +73,9 @@ public class LocalFileStore : IFileStore
     {
         var record = await GetAsync(userId, fileId);
         if (record == null) return false;
+
+        // Delete associated blobs first
+        await _blob.DeleteAllChunksAsync(fileId);
 
         _db.Files.Remove(record);
         await _db.SaveChangesAsync();

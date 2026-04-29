@@ -1,16 +1,26 @@
+using System.Text.Json.Serialization;
+
 // These are small message shapes (DTOs) used for sign up and sign in.
 namespace FileFox_Backend.Core.Models;
 
 public class RegisterRequest
 {
+    [JsonPropertyName("username")]
     public required string UserName { get; set; }
+
+    [JsonPropertyName("email")]
     public required string Email { get; set; }
+
+    [JsonPropertyName("password")]
     public required string Password { get; set; }
 }
 
 public class LoginRequest
 {
+    [JsonPropertyName("email")]
     public required string Email { get; set; }
+
+    [JsonPropertyName("password")]
     public required string Password { get; set; }
 }
 
@@ -34,17 +44,45 @@ public class RefreshResponse
 }
 public class MfaLoginRequest
 {
+    [JsonPropertyName("mfaToken")]
     public string MfaToken { get; set; } = default!;
+
+    [JsonPropertyName("code")]
     public string Code { get; set; } = default!;
 }
 
 public class MfaVerifyRequest
 {
+    [JsonPropertyName("code")]
     public string Code { get; set; } = default!;
 }
 
 public class MfaCompleteRequest
 {
+    [JsonPropertyName("mfaToken")]
     public required string MfaToken { get; set; }
+
+    [JsonPropertyName("code")]
     public required string Code { get; set; }
+}
+
+public class RecoveryLoginRequest
+{
+    [JsonPropertyName("mfaToken")]
+    public required string MfaToken { get; set; }
+
+    [JsonPropertyName("recoveryCode")]
+    public required string RecoveryCode { get; set; }
+}
+
+public class UserInfoResponse
+{
+    [JsonPropertyName("userName")]
+    public required string UserName { get; set; }
+
+    [JsonPropertyName("email")]
+    public required string Email { get; set; }
+
+    [JsonPropertyName("mfaEnabled")]
+    public bool MfaEnabled { get; set; }
 }

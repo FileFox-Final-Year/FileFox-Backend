@@ -12,31 +12,18 @@ public class AuditService
         _db = db;
     }
 
-    public async Task LogFileActionAsync(Guid userId, Guid fileRecordId, string action)
+    public async Task LogAsync(Guid userId, string action, Guid? fileId = null)
     {
-        _db.AuditLogs.Add(new AuditLog
+        var log = new AuditLog
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            FileRecordId = fileRecordId,
             Action = action,
+            FileRecordId = fileId,
             Timestamp = DateTimeOffset.UtcNow
-        });
+        };
 
-        await _db.SaveChangesAsync();
-    }
-
-    public async Task LogActionAsync(Guid userId, string action)
-    {
-        _db.AuditLogs.Add(new AuditLog
-        {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            FileRecordId = Guid.Empty,
-            Action = action,
-            Timestamp = DateTimeOffset.UtcNow
-        });
-
+        _db.AuditLogs.Add(log);
         await _db.SaveChangesAsync();
     }
 }

@@ -7,4 +7,7 @@ namespace FileFox_Backend.Core.Models;
 public class UploadFileRequest
 {
     public IFormFile? File { get; set; }
+    public string? EncryptedMetadata { get; set; }
+    public string? RecoveryWrappedKey { get; set; }
+    public string? WrappedFileKey { get; set; }
 }

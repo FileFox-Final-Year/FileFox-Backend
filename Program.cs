@@ -22,110 +22,46 @@ JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 builder.Services.AddSingleton<ISecretProvider, LocalSecretProvider>();
 
 // -------------------- DATABASE --------------------
-if (builder.Environment.IsEnvironment("Testing"))
-{
-    builder.Services.AddDbContext<ApplicationDbContext>(options =>
-        options.UseInMemoryDatabase("FileFoxMemoryDb"));
-}
-else
-{
-    builder.Services.AddDbContext<ApplicationDbContext>(options =>
-        options.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
-}
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // -------------------- SERVICES --------------------
 builder.Services.AddScoped<IUserStore, EFCoreUserStore>();
 builder.Services.AddScoped<ITokenService, JwtTokenService>();
 builder.Services.AddScoped<RefreshTokenService>();
-builder.Services.AddScoped<IBlobStorageService, LocalBlobStorage>();
-builder.Services.AddScoped<IFileStore, LocalFileStore>();
+builder.Services.AddScoped<IBlobStorageService, SqlBlobStorage>();
+builder.Services.AddScoped<IFileStore, DbFileStore>();
 builder.Services.AddScoped<FileService>();
-builder.Services.AddScoped<IRecoveryCodeService, RecoveryCodeService>();
-builder.Services.AddScoped<IAuthorizationHandler, FileOwnerHandler>();
 builder.Services.AddScoped<AuditService>();
-builder.Services.AddScoped<ManifestService>();
-builder.Services.AddScoped<IFileAuthorizationService, FileAuthorizationService>();
+builder.Services.AddScoped<IAuthorizationHandler, FileOwnerHandler>();
+
+builder.Services.AddControllers();
 
 // -------------------- RATE LIMITING --------------------
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-    if (builder.Environment.IsEnvironment("Testing"))
+    options.AddFixedWindowLimiter("api", opt =>
     {
-        options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(_ =>
-            RateLimitPartition.GetNoLimiter("test"));
-        return;
-    }
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.PermitLimit = 100;
+        opt.QueueLimit = 0;
+    });
 
-    options.AddPolicy("AuthLimiter", context =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            context.User.Identity?.Name
-                ?? context.Connection.RemoteIpAddress?.ToString()
-                ?? "anonymous",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 5,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0
-            }));
-
-    options.AddPolicy("FileLimiter", context =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            context.User.Identity?.Name
-                ?? context.Connection.RemoteIpAddress?.ToString()
-                ?? "anonymous",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 30,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0
-            }));
-
-    options.AddPolicy("MfaLimiter", context =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            context.User.Identity?.Name
-                ?? context.Connection.RemoteIpAddress?.ToString()
-                ?? "anonymous",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 3,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0
-            }));
-
-    options.AddPolicy("KeyLimiter", context =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            context.User.Identity?.Name
-                ?? context.Connection.RemoteIpAddress?.ToString()
-                ?? "anonymous",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 10,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0
-            }));
-
-    options.AddPolicy("ShareLimiter", context =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            context.User.Identity?.Name
-                ?? context.Connection.RemoteIpAddress?.ToString()
-                ?? "anonymous",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 20,
-                Window = TimeSpan.FromMinutes(1),
-                QueueLimit = 0
-            }));
+    options.AddFixedWindowLimiter("auth", opt =>
+    {
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.PermitLimit = 10;
+        opt.QueueLimit = 0;
+    });
 });
-
-builder.Services.AddControllers();
 
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.AllowAnyOrigin() // Change to frontend URL in production
+        policy.AllowAnyOrigin()
               .AllowAnyMethod()
               .AllowAnyHeader();
     });
@@ -201,52 +137,71 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// -------------------- ERROR HANDLING --------------------
-app.UseMiddleware<GlobalExceptionMiddleware>();
-
-// -------------------- HTTPS + HSTS --------------------
-if (!app.Environment.IsDevelopment())
+// -------------------- DATABASE AUTO-MIGRATION/CREATION --------------------
+using (var scope = app.Services.CreateScope())
 {
-    app.UseHsts();
+    var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+    var connectionString = config.GetConnectionString("DefaultConnection");
+
+    if (string.IsNullOrWhiteSpace(connectionString) || connectionString.Contains("YOUR_AWS_RDS_ENDPOINT"))
+    {
+        Console.WriteLine("********************************************************************************");
+        Console.WriteLine("ERROR: Database Connection String is not configured.");
+        Console.WriteLine("Please update 'DefaultConnection' in appsettings.json with your AWS RDS details.");
+        Console.WriteLine("Refer to the README.md for setup instructions.");
+        Console.WriteLine("********************************************************************************");
+        // In a real production app, we might just log this, but for a dev-ready project,
+        // stopping early with a clear message is helpful.
+        return;
+    }
+
+    try
+    {
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        db.Database.EnsureCreated();
+
+        // Self-healing: Ensure AuditLogs.FileRecordId is nullable in case it was created NOT NULL
+        try {
+            db.Database.ExecuteSqlRaw("ALTER TABLE AuditLogs ALTER COLUMN FileRecordId UNIQUEIDENTIFIER NULL");
+        } catch { /* Table might not exist or column already nullable */ }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine("********************************************************************************");
+        Console.WriteLine("ERROR: Could not connect to the database.");
+        Console.WriteLine($"Message: {ex.Message}");
+        Console.WriteLine();
+        Console.WriteLine("Troubleshooting steps:");
+        Console.WriteLine("1. Verify your connection string in appsettings.json.");
+        Console.WriteLine("2. Ensure your AWS RDS instance is running.");
+        Console.WriteLine("3. Check AWS Security Groups to allow port 1433 from your IP.");
+        Console.WriteLine("4. Ensure 'TrustServerCertificate=True' is in your connection string.");
+        Console.WriteLine("********************************************************************************");
+        return;
+    }
 }
 
-app.UseHttpsRedirection();
-
-// -------------------- ROUTING --------------------
-app.UseRouting();
-
-// -------------------- CORS --------------------
-app.UseCors(policy =>
+// -------------------- MIDDLEWARE --------------------
+if (app.Environment.IsDevelopment())
 {
-    policy.WithOrigins("http://localhost:3000") // change to frontend URL
-          .AllowAnyHeader()
-          .AllowAnyMethod();
-});
+    app.UseDeveloperExceptionPage();
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 
-// -------------------- SECURITY HEADERS --------------------
-app.Use(async (context, next) =>
-{
-    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
-    context.Response.Headers["X-Frame-Options"] = "DENY";
-    context.Response.Headers["Referrer-Policy"] = "no-referrer";
-    context.Response.Headers["Permissions-Policy"] = "geolocation=()";
+app.UseMiddleware<GlobalExceptionMiddleware>();
+app.UseMiddleware<SecurityHeadersMiddleware>();
 
-    await next();
-});
+// app.UseHttpsRedirection();
 
-// -------------------- RATE LIMITING --------------------
+app.UseCors();
+
 app.UseRateLimiter();
 
-// -------------------- AUTH --------------------
 app.UseAuthentication();
 app.UseAuthorization();
 
-// -------------------- HEALTH CHECK --------------------
-app.MapGet("/health", () => Results.Ok("OK"));
-
-// -------------------- ENDPOINTS --------------------
 app.MapControllers();
 
 app.Run();
-
 public partial class Program { }

@@ -1,3 +1,5 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using FileFox_Backend.Core.Models;
 using FileFox_Backend.Infrastructure.Extensions;
 using FileFox_Backend.Infrastructure.Services;
@@ -10,25 +12,24 @@ namespace FileFox_Backend.Controllers;
 
 [ApiController]
 [Route("auth")]
-[Authorize]
-[EnableRateLimiting("AuthLimiter")]
+[EnableRateLimiting("auth")]
 public class AuthController : ControllerBase
 {
     private readonly IUserStore _users;
     private readonly ITokenService _tokens;
     private readonly RefreshTokenService _refreshTokens;
-    private readonly AuditService _auditService;
+    private readonly AuditService _audit;
 
     public AuthController(
         IUserStore users,
         ITokenService tokens,
         RefreshTokenService refreshTokens,
-        AuditService auditService)
+        AuditService audit)
     {
         _users = users;
         _tokens = tokens;
         _refreshTokens = refreshTokens;
-        _auditService = auditService;
+        _audit = audit;
     }
 
     // ---------------- REGISTER ----------------
@@ -42,13 +43,12 @@ public class AuthController : ControllerBase
         var (created, user, error) =
             await _users.RegisterAsync(request.UserName, request.Email, request.Password, ct);
 
-        if (!created || user == null)
+        if (!created)
             return Conflict(new { error });
 
-        var token = _tokens.CreateToken(user);
+        await _audit.LogAsync(user!.Id, "User Registered");
 
-        // Audit log: user registered
-        await _auditService.LogActionAsync(user.Id, "USER_REGISTERED");
+        var token = _tokens.CreateToken(user!);
 
         return Created("", new AuthResponse
         {
@@ -79,8 +79,7 @@ public class AuthController : ControllerBase
             });
         }
 
-        // Audit log: user logged in
-        await _auditService.LogActionAsync(user.Id, "USER_LOGGED_IN");
+        await _audit.LogAsync(user.Id, "User Logged In");
 
         return Ok(new
         {
@@ -91,7 +90,6 @@ public class AuthController : ControllerBase
 
     // ---------------- LOGIN (STEP 2: MFA) ----------------
     [AllowAnonymous]
-    [EnableRateLimiting("MfaLimiter")]
     [HttpPost("login/mfa")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -116,8 +114,56 @@ public class AuthController : ControllerBase
         var accessToken = _tokens.CreateToken(user);
         var refreshToken = await _refreshTokens.GenerateTokenAsync(user.Id);
 
-        // Audit log: user logged in with MFA
-        await _auditService.LogActionAsync(user.Id, "USER_LOGGED_IN_WITH_MFA");
+        return Ok(new
+        {
+            AccessToken = accessToken,
+            RefreshToken = refreshToken.Token
+        });
+    }
+
+    // ---------------- LOGIN (RECOVERY) ----------------
+    [AllowAnonymous]
+    [HttpPost("login/recovery")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> LoginWithRecoveryCode([FromBody] RecoveryLoginRequest req)
+    {
+        var principal = _tokens.ValidateMfaToken(req.MfaToken);
+        if (principal == null)
+            return Unauthorized(new { error = "Invalid or expired MFA token" });
+
+        var userIdString = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!Guid.TryParse(userIdString, out var userId))
+            return Unauthorized();
+
+        var (found, user) = await _users.TryGetByIdAsync(userId);
+        if (!found || user == null || !user.MfaEnabled || user.MfaRecoveryCodes == null)
+            return Unauthorized(new { error = "User not found or MFA recovery not available" });
+
+        var hashedCodes = user.MfaRecoveryCodes.Split(',').ToList();
+        string? matchedHashedCode = null;
+
+        foreach (var hashedCode in hashedCodes)
+        {
+            if (BCrypt.Net.BCrypt.Verify(req.RecoveryCode, hashedCode))
+            {
+                matchedHashedCode = hashedCode;
+                break;
+            }
+        }
+
+        if (matchedHashedCode == null)
+            return Unauthorized(new { error = "Invalid recovery code" });
+
+        // Remove the used code
+        hashedCodes.Remove(matchedHashedCode);
+        user.MfaRecoveryCodes = string.Join(",", hashedCodes);
+        await _users.UpdateAsync(user);
+
+        await _audit.LogAsync(user.Id, "User Logged In (Recovery Code)");
+
+        var accessToken = _tokens.CreateToken(user);
+        var refreshToken = await _refreshTokens.GenerateTokenAsync(user.Id);
 
         return Ok(new
         {
@@ -155,7 +201,6 @@ public class AuthController : ControllerBase
 
     // ---------------- MFA SETUP ----------------
     [Authorize]
-    [EnableRateLimiting("MfaLimiter")]
     [HttpPost("mfa/setup")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -169,19 +214,27 @@ public class AuthController : ControllerBase
         user.MfaSecret = OtpNet.Base32Encoding.ToString(secret);
         user.MfaEnabled = false;
 
+        // Generate recovery codes
+        var recoveryCodes = Enumerable.Range(0, 10).Select(_ => Guid.NewGuid().ToString("N")[..12]).ToList();
+        user.MfaRecoveryCodes = string.Join(",", recoveryCodes.Select(c => BCrypt.Net.BCrypt.HashPassword(c)));
+
         await _users.UpdateAsync(user);
+
+        var issuer = "FileFox";
+        var encodedIssuer = Uri.EscapeDataString(issuer);
+        var encodedEmail = Uri.EscapeDataString(user.Email);
 
         return Ok(new
         {
             base32Secret = user.MfaSecret,
             otpAuthUri =
-                $"otpauth://totp/FileFox:{user.Email}?secret={user.MfaSecret}&issuer=FileFox"
+                $"otpauth://totp/{encodedIssuer}:{encodedEmail}?secret={user.MfaSecret}&issuer={encodedIssuer}",
+            recoveryCodes = recoveryCodes
         });
     }
 
     // ---------------- MFA VERIFY ----------------
     [Authorize]
-    [EnableRateLimiting("MfaLimiter")]
     [HttpPost("mfa/verify")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -192,11 +245,51 @@ public class AuthController : ControllerBase
         if (user?.MfaSecret == null) return BadRequest();
 
         var totp = new OtpNet.Totp(OtpNet.Base32Encoding.ToBytes(user.MfaSecret));
-        if (!totp.VerifyTotp(req.Code, out _))
+        if (!totp.VerifyTotp(req.Code, out _, new OtpNet.VerificationWindow(1, 1)))
             return Unauthorized();
 
         user.MfaEnabled = true;
         user.MfaEnabledAt = DateTimeOffset.UtcNow;
+
+        await _users.UpdateAsync(user);
+        return Ok();
+    }
+
+    // ---------------- ME ----------------
+    [Authorize]
+    [HttpGet("me")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetMe()
+    {
+        var userId = User.GetUserId();
+        var (found, user) = await _users.TryGetByIdAsync(userId);
+
+        if (!found || user == null)
+            return Unauthorized();
+
+        return Ok(new UserInfoResponse
+        {
+            UserName = user.UserName,
+            Email = user.Email,
+            MfaEnabled = user.MfaEnabled
+        });
+    }
+
+    // ---------------- MFA DISABLE ----------------
+    [Authorize]
+    [HttpPost("mfa/disable")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> DisableMfa()
+    {
+        var userId = User.GetUserId();
+        var (_, user) = await _users.TryGetByIdAsync(userId);
+        if (user == null) return Unauthorized();
+
+        user.MfaEnabled = false;
+        user.MfaSecret = null;
+        user.MfaRecoveryCodes = null;
 
         await _users.UpdateAsync(user);
         return Ok();

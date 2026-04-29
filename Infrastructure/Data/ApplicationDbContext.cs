@@ -1,6 +1,7 @@
 using FileFox_Backend.Core.Models;
 using Microsoft.EntityFrameworkCore;
 
+using FileFox_Backend.Core.Interfaces;
 namespace FileFox_Backend.Infrastructure.Data
 {
     public class ApplicationDbContext : DbContext
@@ -16,9 +17,7 @@ namespace FileFox_Backend.Infrastructure.Data
         public DbSet<FileKey> FileKeys { get; set; } = null!;
         public DbSet<AuditLog> AuditLogs { get; set; } = null!;
         public DbSet<UserKeyPair> UserKeyPairs { get; set; } = null!;
-        public DbSet<FileFox_Backend.Core.Models.FileAccess> FileAccesses { get; set; } = null!;
-        public DbSet<RecoveryCode> RecoveryCodes { get; set; } = null!;
-        public DbSet<FileManifest> FileManifests { get; set; }
+        public DbSet<BlobData> Blobs { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -28,6 +27,15 @@ namespace FileFox_Backend.Infrastructure.Data
                 .HasOne(k => k.FileRecord)
                 .WithMany(f => f.Keys)
                 .HasForeignKey(k => k.FileRecordId);
+
+            modelBuilder.Entity<AuditLog>(entity =>
+            {
+                entity.HasOne(a => a.FileRecord)
+                    .WithMany()
+                    .HasForeignKey(a => a.FileRecordId)
+                    .IsRequired(false)
+                    .OnDelete(DeleteBehavior.SetNull);
+            });
         }
     }
 }

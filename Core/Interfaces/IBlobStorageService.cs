@@ -9,4 +9,5 @@ public interface IBlobStorageService
     Task<Stream?> GetChunkAsync(Guid fileId, int chunkIndex);
     Task<string> PutManifestAsync(Guid fileId, Stream encryptedManifest);
     Task<Stream?> GetManifestAsync(Guid fileId);
+    Task DeleteAllChunksAsync(Guid fileId);
 }

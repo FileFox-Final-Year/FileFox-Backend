@@ -11,6 +11,7 @@ public class User
     public bool MfaEnabled { get; set; }
     public string? MfaSecret { get; set; }
     public DateTimeOffset? MfaEnabledAt { get; set; }
+    public string? MfaRecoveryCodes { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public ICollection<FileRecord> Files { get; set; } = new List<FileRecord>();
     public ICollection<UserKeyPair> KeyPairs { get; set; } = new List<UserKeyPair>();

@@ -8,7 +8,6 @@ public class UserKeyPair
     public string Algorithm { get; set; } = null!;
     public string PublicKey { get; set; } = null!;
     public string EncryptedPrivateKey { get; set; } = null!;
-    public string? EncryptedPrivateKeyRecovery { get; set; }
     public int KeyVersion { get; set; } = 1;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? RevokedAt { get; set; }
