@@ -26,6 +26,7 @@ packages/
 appsettings.Development.json
 appsettings.Staging.json
 appsettings.Production.json
+appsettings.json
 
 ### Document Layout ###
 DocumentLayout.backup.json
