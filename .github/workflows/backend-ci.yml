@@ -6,10 +6,12 @@ on:
   pull_request:
     branches: [ main ]
 
-# -------------------- REQUIRED FOR CODEQL --------------------
 permissions:
   contents: read
   security-events: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
 
@@ -34,7 +36,6 @@ jobs:
     - name: Run unit tests
       run: dotnet test --configuration Release --no-build
 
-# ---------------- SECURITY SCAN ----------------
     - name: Vulnerable packages scan
       run: dotnet list package --vulnerable --include-transitive
 
@@ -56,19 +57,18 @@ jobs:
         dotnet-version: 8.0.x
 
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v3
+      uses: github/codeql-action/init@v4
       with:
         languages: csharp
-
-    - name: Restore
-      run: dotnet restore
+        build-mode: autobuild
 
     - name: Build for CodeQL
       run: dotnet build --configuration Release --no-restore
 
     - name: Analyze
-      uses: github/codeql-action/analyze@v3
-      
+      uses: github/codeql-action/analyze@v4
+
+
 # ---------------- INTEGRATION TESTS ----------------
     - name: Integration tests
       run: API_URL=http://localhost:8080 dotnet test FileFox_Backend.Tests --filter "Category=Integration"
@@ -80,4 +80,4 @@ jobs:
       if: always()
       with:
         name: coverage
-        path: "**/coverage.cobertura.xml"
+        path: "**/TestResults/**/coverage.cobertura.xml"
