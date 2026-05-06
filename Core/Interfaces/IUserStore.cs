@@ -20,4 +20,8 @@ public interface IUserStore
     Task UpdateAsync(User user);
 
     Task<(bool Found, User? User)> TryGetByIdAsync(Guid id);
+
+    Task<User?> GetByEmailAsync(string email, CancellationToken ct = default);
+
+    Task<User?> GetByResetTokenAsync(string token, CancellationToken ct = default);
 }

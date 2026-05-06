@@ -85,4 +85,25 @@ public class UserInfoResponse
 
     [JsonPropertyName("mfaEnabled")]
     public bool MfaEnabled { get; set; }
+
+    [JsonPropertyName("profilePicture")]
+    public string? ProfilePicture { get; set; }
+
+    [JsonPropertyName("profilePictureContentType")]
+    public string? ProfilePictureContentType { get; set; }
+}
+
+public class ForgotPasswordRequest
+{
+    [JsonPropertyName("email")]
+    public required string Email { get; set; }
+}
+
+public class ResetPasswordRequest
+{
+    [JsonPropertyName("token")]
+    public required string Token { get; set; }
+
+    [JsonPropertyName("newPassword")]
+    public required string NewPassword { get; set; }
 }

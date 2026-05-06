@@ -272,8 +272,67 @@ public class AuthController : ControllerBase
         {
             UserName = user.UserName,
             Email = user.Email,
-            MfaEnabled = user.MfaEnabled
+            MfaEnabled = user.MfaEnabled,
+            ProfilePicture = user.ProfilePicture != null ? Convert.ToBase64String(user.ProfilePicture) : null,
+            ProfilePictureContentType = user.ProfilePictureContentType
         });
+    }
+
+    // ---------------- FORGOT PASSWORD ----------------
+    [AllowAnonymous]
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest req)
+    {
+        var user = await _users.GetByEmailAsync(req.Email);
+        if (user == null) return Ok(); // Don't reveal user existence
+
+        user.PasswordResetToken = Guid.NewGuid().ToString("N");
+        user.PasswordResetTokenExpires = DateTimeOffset.UtcNow.AddHours(1);
+
+        await _users.UpdateAsync(user);
+
+        // In a real app, send an email. For now, we return it in the response for demo purposes.
+        return Ok(new { resetToken = user.PasswordResetToken });
+    }
+
+    // ---------------- RESET PASSWORD ----------------
+    [AllowAnonymous]
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest req)
+    {
+        var user = await _users.GetByResetTokenAsync(req.Token);
+        if (user == null || user.PasswordResetTokenExpires < DateTimeOffset.UtcNow)
+            return BadRequest(new { error = "Invalid or expired reset token" });
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword);
+        user.PasswordResetToken = null;
+        user.PasswordResetTokenExpires = null;
+
+        await _users.UpdateAsync(user);
+        await _audit.LogAsync(user.Id, "Password Reset");
+
+        return Ok();
+    }
+
+    // ---------------- PROFILE PICTURE ----------------
+    [Authorize]
+    [HttpPost("profile-picture")]
+    public async Task<IActionResult> UploadProfilePicture(IFormFile file)
+    {
+        if (file == null || file.Length == 0) return BadRequest("No file uploaded");
+        if (file.Length > 1 * 1024 * 1024) return BadRequest("File too large (max 1MB)");
+
+        var userId = User.GetUserId();
+        var (_, user) = await _users.TryGetByIdAsync(userId);
+        if (user == null) return Unauthorized();
+
+        using var ms = new MemoryStream();
+        await file.CopyToAsync(ms);
+        user.ProfilePicture = ms.ToArray();
+        user.ProfilePictureContentType = file.ContentType;
+
+        await _users.UpdateAsync(user);
+        return Ok();
     }
 
     // ---------------- MFA DISABLE ----------------

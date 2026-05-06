@@ -164,6 +164,18 @@ using (var scope = app.Services.CreateScope())
         try {
             db.Database.ExecuteSqlRaw("ALTER TABLE AuditLogs ALTER COLUMN FileRecordId UNIQUEIDENTIFIER NULL");
         } catch { /* Table might not exist or column already nullable */ }
+
+        // Self-healing: Add new columns to Users table if they don't exist
+        try {
+            db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'PasswordResetToken') " +
+                                     "ALTER TABLE Users ADD PasswordResetToken NVARCHAR(MAX) NULL");
+            db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'PasswordResetTokenExpires') " +
+                                     "ALTER TABLE Users ADD PasswordResetTokenExpires DATETIMEOFFSET NULL");
+            db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'ProfilePicture') " +
+                                     "ALTER TABLE Users ADD ProfilePicture VARBINARY(MAX) NULL");
+            db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'ProfilePictureContentType') " +
+                                     "ALTER TABLE Users ADD ProfilePictureContentType NVARCHAR(MAX) NULL");
+        } catch { /* Might fail if database is not SQL Server or other issues */ }
     }
     catch (Exception ex)
     {

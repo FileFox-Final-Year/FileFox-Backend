@@ -58,4 +58,14 @@ public class EFCoreUserStore : IUserStore
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id);
         return (user != null, user);
     }
+
+    public async Task<User?> GetByEmailAsync(string email, CancellationToken ct = default)
+    {
+        return await _db.Users.FirstOrDefaultAsync(u => u.Email == email, ct);
+    }
+
+    public async Task<User?> GetByResetTokenAsync(string token, CancellationToken ct = default)
+    {
+        return await _db.Users.FirstOrDefaultAsync(u => u.PasswordResetToken == token, ct);
+    }
 }

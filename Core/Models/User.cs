@@ -12,6 +12,10 @@ public class User
     public string? MfaSecret { get; set; }
     public DateTimeOffset? MfaEnabledAt { get; set; }
     public string? MfaRecoveryCodes { get; set; }
+    public string? PasswordResetToken { get; set; }
+    public DateTimeOffset? PasswordResetTokenExpires { get; set; }
+    public byte[]? ProfilePicture { get; set; }
+    public string? ProfilePictureContentType { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public ICollection<FileRecord> Files { get; set; } = new List<FileRecord>();
     public ICollection<UserKeyPair> KeyPairs { get; set; } = new List<UserKeyPair>();
