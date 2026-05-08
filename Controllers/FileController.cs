@@ -91,6 +91,7 @@ public class FilesController : ControllerBase
 
     // ---------------- DIRECT UPLOAD ----------------
     [HttpPost("upload")]
+    [DisableRequestSizeLimit]
     public async Task<IActionResult> Upload([FromForm] UploadFileRequest request, CancellationToken ct)
     {
         var userId = User.GetUserId();
