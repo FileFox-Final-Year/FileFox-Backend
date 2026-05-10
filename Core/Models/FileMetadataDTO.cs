@@ -14,4 +14,6 @@ public class FileMetadataDto
     public List<string> WrappedKeys { get; set; } = new();
     public string? RecoveryWrappedKey { get; set; }
     public string CryptoVersion { get; set; } = "v1";
+    public string? OwnerEmail { get; set; }
+    public bool IsOwner { get; set; }
 }

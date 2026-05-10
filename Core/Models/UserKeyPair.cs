@@ -11,5 +11,6 @@ public class UserKeyPair
     public int KeyVersion { get; set; } = 1;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? RevokedAt { get; set; }
+
     public User User { get; set; } = null!;
 }   

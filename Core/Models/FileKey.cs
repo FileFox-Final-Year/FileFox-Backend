@@ -3,6 +3,7 @@ public class FileKey
 {
     public Guid Id { get; set; }
     public Guid FileRecordId { get; set; }
+    public Guid? UserId { get; set; }
     public string WrappedFileKey { get; set; } = null!;
     public string Algorithm { get; set; } = "ECIES-P256";
     public int KeyVersion { get; set; } = 1;

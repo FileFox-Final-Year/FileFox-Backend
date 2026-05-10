@@ -4,10 +4,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using FileFox_Backend.Infrastructure.Data;
 using FileFox_Backend.Core.Models;
 using FileFox_Backend.Infrastructure.Extensions;
-using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
-
-using FileFox_Backend.Core.Interfaces;
 namespace FileFox_Backend.Controllers;
 
 [ApiController]
@@ -65,6 +62,25 @@ public class KeyController : ControllerBase
             .FirstOrDefaultAsync();
 
         return key == null ? NotFound() : Ok(key);
+    }
+
+    // ---------------- GET PUBLIC KEY BY EMAIL ----------------
+    [HttpGet("public-by-email/{email}")]
+    public async Task<IActionResult> GetPublicKeyByEmail(string email)
+    {
+        var user = await _dbContext.Users
+            .FirstOrDefaultAsync(u => u.Email == email);
+
+        if (user == null)
+            return NotFound("User not found");
+
+        var key = await _dbContext.UserKeyPairs
+            .Where(k => k.UserId == user.Id && k.RevokedAt == null)
+            .OrderByDescending(k => k.KeyVersion)
+            .Select(k => new { UserId = user.Id, k.PublicKey, k.Algorithm })
+            .FirstOrDefaultAsync();
+
+        return key == null ? NotFound("Public key not found for user") : Ok(key);
     }
 
     // ---------------- GET PUBLIC KEY ----------------

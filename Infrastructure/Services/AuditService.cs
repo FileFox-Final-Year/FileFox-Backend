@@ -1,5 +1,6 @@
 using FileFox_Backend.Core.Models;
 using FileFox_Backend.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace FileFox_Backend.Infrastructure.Services;
 
@@ -25,5 +26,14 @@ public class AuditService
 
         _db.AuditLogs.Add(log);
         await _db.SaveChangesAsync();
+    }
+
+    public async Task<List<AuditLog>> GetLogsForUserAsync(Guid userId)
+    {
+        return await _db.AuditLogs
+            .Include(l => l.FileRecord)
+            .Where(l => l.UserId == userId)
+            .OrderByDescending(l => l.Timestamp)
+            .ToListAsync();
     }
 }

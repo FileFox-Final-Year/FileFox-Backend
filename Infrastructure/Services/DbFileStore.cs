@@ -1,7 +1,5 @@
-using FileFox_Backend.Core.Interfaces;
 using FileFox_Backend.Core.Models;
 using FileFox_Backend.Infrastructure.Data;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 namespace FileFox_Backend.Infrastructure.Services;
 
@@ -45,6 +43,7 @@ public class DbFileStore : IFileStore
             _db.FileKeys.Add(new FileKey
             {
                 FileRecordId = fileId,
+                UserId = userId,
                 WrappedFileKey = wrappedFileKey
             });
         }
