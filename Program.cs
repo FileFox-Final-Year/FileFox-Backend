@@ -1,5 +1,4 @@
 using FileFox_Backend.Core.Interfaces;
-using FileFox_Backend.Core.Models;
 using FileFox_Backend.Infrastructure.Data;
 using FileFox_Backend.Infrastructure.Services;
 using FileFox_Backend.Infrastructure.Middleware;
@@ -13,7 +12,6 @@ using System.Security.Claims;
 using System.Text;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.RateLimiting;
-using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
@@ -175,6 +173,10 @@ using (var scope = app.Services.CreateScope())
                                      "ALTER TABLE Users ADD ProfilePicture VARBINARY(MAX) NULL");
             db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Users') AND name = 'ProfilePictureContentType') " +
                                      "ALTER TABLE Users ADD ProfilePictureContentType NVARCHAR(MAX) NULL");
+
+            // Self-healing: Add UserId to FileKeys table if it doesn't exist
+            db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('FileKeys') AND name = 'UserId') " +
+                                     "ALTER TABLE FileKeys ADD UserId UNIQUEIDENTIFIER NULL");
         } catch { /* Might fail if database is not SQL Server or other issues */ }
     }
     catch (Exception ex)
